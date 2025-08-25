@@ -55,35 +55,35 @@ pip install -U requests plexapi
 
 ## ⚙️ Configuration (`config.json`)
 
-A starter file is created on first run. Example (no comments):
+A starter file is created on first run:
 
 ```json
 {
   "plex": {
-    "account_token": ""
+    "account_token": ""          // REQUIRED: Your Plex *account* token (not a server token)
   },
   "simkl": {
-    "client_id": "",
-    "client_secret": "",
-    "access_token": "",
-    "refresh_token": "",
-    "token_expires_at": 0
+    "client_id": "",             // REQUIRED: SIMKL API Client ID (from creating an app in SIMKL)
+    "client_secret": "",         // REQUIRED: SIMKL API Client Secret
+    "access_token": "",          // Leave blank; script fills after OAuth
+    "refresh_token": "",         // Leave blank; script fills after OAuth
+    "token_expires_at": 0        // Leave as 0; script manages expiry time (unix epoch seconds)
   },
   "sync": {
-    "enable_add": true,
-    "enable_remove": true,
-    "verify_after_write": true,
+    "enable_add": true,          // Allow adding missing items
+    "enable_remove": true,       // Allow removing extras (used in mirror and two-way w/ deletions)
+    "verify_after_write": true,  // Re-read both sides after changes to confirm counts
     "bidirectional": {
-      "enabled": true,
-      "mode": "two-way",
-      "source_of_truth": "plex"
+      "enabled": true,           // Enable bi-directional sync
+      "mode": "two-way",         // "two-way" (union/adds; deletions when state exists) or "mirror"
+      "source_of_truth": "plex"  // Used only for "mirror": "plex" or "simkl"
     }
   },
   "runtime": {
-    "debug": false
+    "debug": false               // Set true for verbose logs
   }
 }
-```
+
 
 ### Keys
 
@@ -112,12 +112,12 @@ This script includes a tiny HTTP server to finish OAuth locally and save tokens 
 ./plex_simkl_watchlist_sync.py --init-simkl redirect --bind 0.0.0.0:8787 --open
 ```
 
-- Replace `0.0.0.0` with the actual IP of the host/container if needed.
+- Replace `0.0.0.0` with the actual IP of the host/container!
 - The script prints an authorization link — open it, grant access, tokens are stored to `config.json`.
 
 ---
 
-## 🎟 Getting a Plex account token (one method)
+## 🎟 Getting a Plex account token
 
 1. Open **https://app.plex.tv** and sign in.
 2. Open your browser **Developer Tools → Network** tab.
@@ -144,7 +144,7 @@ Typical flows:
 ./plex_simkl_watchlist_sync.py
 
 # Initialize SIMKL tokens (local redirect helper on port 8787)
-./plex_simkl_watchlist_sync.py --init-simkl redirect --bind 0.0.0.0:8787 --open
+./plex_simkl_watchlist_sync.py --init-simkl redirect --bind 0.0.0.0:8787
 
 # Run a sync (shows banner then [i] logs)
 ./plex_simkl_watchlist_sync.py --sync
@@ -162,7 +162,7 @@ Typical flows:
 --sync                         Run synchronization using config.json
 --init-simkl redirect          Start local redirect helper for SIMKL OAuth
 --bind HOST:PORT               Bind address for redirect helper (default 0.0.0.0:8787)
---open                         Try to open the SIMKL auth URL locally
+--open                         Try to open the SIMKL auth URL locally 
 --plex-account-token TOKEN     Override Plex token from config.json once
 --debug                        Verbose logging
 --version                      Print script and plexapi versions
@@ -231,7 +231,6 @@ Typical flows:
 
 - Tokens are stored **locally** in `config.json`.
 - The script only talks to **Plex** and **SIMKL**.
-- No telemetry, no third-party analytics.
 
 ---
 

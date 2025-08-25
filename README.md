@@ -83,7 +83,7 @@ A starter file is created on first run:
     "debug": false               // Set true for verbose logs
   }
 }
-
+```
 
 ### Keys
 

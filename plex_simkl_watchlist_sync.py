@@ -662,7 +662,7 @@ def plex_add_by_ids(acct: MyPlexAccount, ids: dict, libtype: str, debug: bool=Fa
     if not it:
         if debug:
             print(f"[debug] plexapi add: could not resolve {ids}")
-        return False
+        return False    # keep as False: we genuinely couldn't resolve
     try:
         it.addToWatchlist(account=acct)
         if debug:
@@ -673,6 +673,14 @@ def plex_add_by_ids(acct: MyPlexAccount, ids: dict, libtype: str, debug: bool=Fa
     except Exception as e:
         if debug:
             print(f"[debug] plexapi add failed: {e}")
+        # ✅ NEW: count "already present" as a successful no-op
+        msg = str(e).lower()
+        if ("already on the watchlist" in msg or
+            "already on watchlist" in msg or
+            "409" in msg):
+            if debug:
+                print("[debug] treat as success: item already present on Plex")
+            return True
         return False
 
 def plex_remove_by_ids(acct: MyPlexAccount, ids: dict, libtype: str, debug: bool=False) -> bool:
@@ -680,6 +688,7 @@ def plex_remove_by_ids(acct: MyPlexAccount, ids: dict, libtype: str, debug: bool
     if not it:
         if debug:
             print(f"[debug] plexapi remove: could not resolve {ids}")
+        # If we can't resolve it AND it's not in current Plex sets, treat as already gone.
         return False
     try:
         it.removeFromWatchlist(account=acct)
@@ -691,6 +700,12 @@ def plex_remove_by_ids(acct: MyPlexAccount, ids: dict, libtype: str, debug: bool
     except Exception as e:
         if debug:
             print(f"[debug] plexapi remove failed: {e}")
+        # NEW: consider "already gone" a success so we can save state
+        msg = str(e).lower()
+        if "not on the watchlist" in msg or "404" in msg or "not found" in msg:
+            if debug:
+                print("[debug] treat as success: item already absent on Plex")
+            return True
         return False
 
 # --------------------------- Sync helpers ------------------------------------

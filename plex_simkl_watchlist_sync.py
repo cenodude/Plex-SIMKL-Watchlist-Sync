@@ -1,30 +1,47 @@
 #!/usr/bin/env python3
-
 """
-Plex ⇄ SIMKL Watchlist Sync
+Plex ⇄ SIMKL Watchlist Sync (v0.1)
+==================================
 
-Synchronizes your Plex Watchlist with your SIMKL "Plan to Watch" list.
+Keep your Plex Watchlist and SIMKL “Plan to Watch” list in sync. This tool
+adds and removes items so both services stay aligned.
 
-Design:
-- Uses `plexapi` for all Plex write operations (add/remove) and for reads when possible.
-- If `plexapi` watchlist read fails due to upstream API changes, falls back to Plex
-  Discover HTTP *read only* to fetch the watchlist. There are no HTTP fallbacks
-  for writes; add/remove in Plex strictly go through `plexapi`.
-- Supports two sync strategies:
-    * two-way (union): add missing items on both sides; no removals.
-    * mirror: make one side exactly match the source_of_truth (add + remove).
-- Includes a small HTTP redirect helper to complete SIMKL OAuth:
-    `--init-simkl redirect --bind 0.0.0.0:8787 [--open]`
+How it works
+------------
+- Plex-first writes: All add/remove operations on Plex use `plexapi`.
+- Read fallback (fetch only): If reading the Plex watchlist via `plexapi`
+  fails due to upstream changes, the script temporarily reads it via Plex
+  Discover HTTP. Writes still use `plexapi` only.
 
-Requirements:
-- Python 3.8+ recommended.
-- `requests` and `plexapi` installed in the same environment you run this script.
-- A `config.json` next to the script with Plex token and SIMKL credentials.
-  A starter config is created automatically on first run.
+Sync modes
+----------
+- Mirror: Makes one side exactly match the other (adds + deletions) based on a
+  chosen source of truth.
+- Two-way:
+  • First run: creates a local snapshot (`state.json`) and performs *adds only*
+    (no deletions) to avoid accidental data loss.
+  • Subsequent runs: compares current lists to the snapshot and propagates both
+    *adds and deletions* in both directions.
+
+SIMKL sign-in (OAuth)
+---------------------
+Run:
+  --init-simkl redirect --bind <HOST>:8787 [--open]
 
 Notes:
-- This script does NOT persist state between runs.
-- Only the final post-sync comparison is colorized (green/red) to indicate success.
+- `<HOST>` must be an address/hostname reachable by your browser (e.g., the
+  server or container IP), **not** `0.0.0.0`.
+- Add the exact callback URL `http://<HOST>:8787/callback` to your SIMKL app’s
+  Redirect URIs.
+- The command starts a tiny local web server to receive the SIMKL OAuth
+  redirect. Open the printed authorization link and the script will store
+  tokens in `config.json`.
+
+Requirements
+------------
+- Python 3.8+.
+- `requests` and `plexapi` installed in the same Python environment. Requires the latest plexapi
+- A `config.json` next to the script (a starter file is created on first run).
 """
 
 import argparse
@@ -45,6 +62,7 @@ __VERSION__ = "0.1"
 # Paths / constants
 HERE = Path(__file__).resolve().parent
 CONFIG_PATH = HERE / "config.json"
+STATE_PATH  = HERE / "state.json"
 
 UA = f"Plex-SIMKL-Watchlist-Sync/plexapi-first/{__VERSION__} (+https://simkl.com)"
 
@@ -56,7 +74,7 @@ DISCOVER_HOST = "https://discover.provider.plex.tv"
 PLEX_WATCHLIST_PATH = "/library/sections/watchlist/all"
 PLEX_METADATA_PATH = "/library/metadata"
 
-# Default config scaffold
+# Default config scaffold (Python dict comments are fine; JSON file has no comments)
 DEFAULT_CONFIG = {
     "plex": {
         "account_token": ""
@@ -74,8 +92,8 @@ DEFAULT_CONFIG = {
         "verify_after_write": True,
         "bidirectional": {
             "enabled": True,
-            "mode": "two-way",
-            "source_of_truth": "plex"
+            "mode": "two-way",          # "two-way" (union) or "mirror"
+            "source_of_truth": "plex"   # used only when mode="mirror": "simkl" or "plex"
         }
     },
     "runtime": {
@@ -99,6 +117,7 @@ def load_config_file(path: Path) -> dict:
         cfg = json.loads(_read_text(path))
     except Exception as e:
         sys.exit(f"[!] Could not parse {path} as JSON: {e}")
+    # ensure essential sections exist
     for k, v in DEFAULT_CONFIG.items():
         if k not in cfg or not isinstance(cfg[k], dict):
             cfg[k] = v if isinstance(v, dict) else cfg.get(k, v)
@@ -112,6 +131,28 @@ def ensure_config_exists(path: Path) -> bool:
         return False
     dump_config_file(path, DEFAULT_CONFIG)
     return True
+
+# --------------------------- State I/O ---------------------------------------
+def load_state(path: Path) -> Optional[dict]:
+    if not path.exists():
+        return None
+    try:
+        return json.loads(_read_text(path))
+    except Exception:
+        return None
+
+def save_state(path: Path, data: dict):
+    data = dict(data)
+    data["version"] = 1
+    data["last_sync_epoch"] = int(time.time())
+    _write_text(path, json.dumps(data, indent=2))
+
+def clear_state(path: Path):
+    try:
+        if path.exists():
+            path.unlink()
+    except Exception:
+        pass
 
 # --------------------------- Banner -----------------------------------------
 def print_banner():
@@ -232,6 +273,16 @@ def idset_from_ids(ids: dict) -> Set[Tuple[str, str]]:
         if k in ids and ids[k] is not None:
             out.add((k, str(ids[k])))
     return out
+
+def canonical_identity(ids: dict) -> Optional[Tuple[str, str]]:
+    for k in ("imdb", "tmdb", "tvdb", "slug"):
+        v = ids.get(k)
+        if v is not None:
+            return (k, str(v))
+    return None
+
+def identity_key(pair: Tuple[str, str]) -> str:
+    return f"{pair[0]}:{pair[1]}"
 
 # --------------------------- SIMKL OAuth helper ------------------------------
 def detect_local_ip(fallback: str="localhost") -> str:
@@ -611,7 +662,7 @@ def plex_add_by_ids(acct: MyPlexAccount, ids: dict, libtype: str, debug: bool=Fa
     if not it:
         if debug:
             print(f"[debug] plexapi add: could not resolve {ids}")
-        return False    # Do not suggest HTTP fallbacks here
+        return False
     try:
         it.addToWatchlist(account=acct)
         if debug:
@@ -662,8 +713,8 @@ def gather_plex_sets(items: List[object | dict]) -> Tuple[List[dict], Set[Tuple[
     for it in items:
         libtype = item_libtype(it)
         ids_full = plex_item_to_ids(it)
-        ids = {k: v for k, v in ids_full.items() if k in ("imdb", "tmdb", "tvdb") and v}
-        row = {"type": libtype, "title": ids_full.get("title"), "ids": ids}
+        ids = {k: v for k, v in ids_full.items() if k in ("imdb", "tmdb", "tvdb", "slug") and v}
+        row = {"type": libtype, "title": ids_full.get("title"), "year": ids_full.get("year"), "ids": ids}
         parsed.append(row)
         if ids:
             idset = idset_from_ids(ids)
@@ -707,6 +758,58 @@ def plan_differences(
 
     return plex_only_movies, plex_only_shows, simkl_only_movies, simkl_only_shows
 
+def build_index(rows_movies: List[dict], rows_shows: List[dict]):
+    """
+    Build per-side index: identity_key -> record {ids, type, title, year}
+    """
+    idx: Dict[str, dict] = {}
+
+    for r in rows_movies:
+        ids = combine_ids(r["ids"])
+        pair = canonical_identity(ids)
+        if not pair:
+            continue
+        idx[identity_key(pair)] = {
+            "type": "movie",
+            "ids": ids,
+            "title": r.get("title"),
+            "year": r.get("year"),
+        }
+    for r in rows_shows:
+        ids = combine_ids(r["ids"])
+        pair = canonical_identity(ids)
+        if not pair:
+            continue
+        idx[identity_key(pair)] = {
+            "type": "show",
+            "ids": ids,
+            "title": r.get("title"),
+            "year": r.get("year"),
+        }
+    return idx
+
+def build_index_from_simkl(simkl_movies: List[dict], simkl_shows: List[dict]):
+    idx: Dict[str, dict] = {}
+    for m in simkl_movies:
+        ids = combine_ids(m["ids"])
+        pair = canonical_identity(ids)
+        if not pair:
+            continue
+        idx[identity_key(pair)] = {"type": "movie", "ids": ids, "title": m.get("title"), "year": ids.get("year")}
+    for s in simkl_shows:
+        ids = combine_ids(s["ids"])
+        pair = canonical_identity(ids)
+        if not pair:
+            continue
+        idx[identity_key(pair)] = {"type": "show", "ids": ids, "title": s.get("title"), "year": ids.get("year")}
+    return idx
+
+def snapshot_for_state(plex_idx: Dict[str, dict], simkl_idx: Dict[str, dict]) -> dict:
+    return {
+        "plex": {"items": plex_idx},
+        "simkl": {"items": simkl_idx},
+    }
+
 # --------------------------- CLI / Main --------------------------------------
 def build_parser() -> argparse.ArgumentParser:
     epilog = """examples:
@@ -718,6 +821,9 @@ def build_parser() -> argparse.ArgumentParser:
 
   Override Plex token just for this run:
     ./plex_simkl_watchlist_sync.py --sync --plex-account-token <TOKEN>
+
+  Reset the local state snapshot (safe re-seed on next run):
+    ./plex_simkl_watchlist_sync.py --reset-state
 """
     ap = argparse.ArgumentParser(
         prog="plex_simkl_watchlist_sync.py",
@@ -732,6 +838,7 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--plex-account-token", help="Override Plex token from config.json for this run only")
     ap.add_argument("--debug", action="store_true", help="Verbose logging")
     ap.add_argument("--version", action="store_true", help="Print script and plexapi versions")
+    ap.add_argument("--reset-state", action="store_true", help="Delete local state.json so next --sync re-seeds")
     return ap
 
 def main():
@@ -748,6 +855,11 @@ def main():
         import plexapi
         print(f"Script version: {__VERSION__}")
         print(f"plexapi version: {getattr(plexapi, '__version__', '?')}")
+        return
+
+    if args.reset_state:
+        clear_state(STATE_PATH)
+        print("[✓] Cleared local state.json (next --sync will safely re-seed).")
         return
 
     # Create starter config if missing.
@@ -828,10 +940,16 @@ def main():
     simkl_movies = [{"ids": ids_from_simkl_item(it), "title": (it.get("movie") or {}).get("title")} for it in movies_items]
     simkl_shows = [{"ids": ids_from_simkl_item(it), "title": (it.get("show") or {}).get("title")} for it in shows_items]
 
-    plex_total, simkl_total = len(plex_items_mixed), (len(simkl_shows) + len(simkl_movies))
+    # For indexing & state
+    plex_movies_rows = [r for r in plex_rows if r["type"] == "movie"]
+    plex_shows_rows  = [r for r in plex_rows if r["type"] == "show"]
+    plex_idx         = build_index(plex_movies_rows, plex_shows_rows)
+    simkl_idx        = build_index_from_simkl(simkl_movies, simkl_shows)
+
+    plex_total, simkl_total = len(plex_rows), (len(simkl_movies) + len(simkl_shows))
     neutral_precheck_msg(plex_total, simkl_total)
 
-    # 2) Diff planning
+    # 2) Plan differences for union/mirror helpers
     plex_only_movies, plex_only_shows, simkl_only_movies, simkl_only_shows = plan_differences(
         plex_rows, plex_movies_set, plex_shows_set, simkl_movies, simkl_shows
     )
@@ -849,35 +967,151 @@ def main():
 
     hdrs_simkl = simkl_headers(simkl_cfg)
 
-    # 3) Apply strategy
-    if bidi_enabled and mode == "two-way":
-        # Add missing both directions; no removals.
-        simkl_add_payload = {}
-        if enable_add and plex_only_movies:
-            simkl_add_payload["movies"] = [{"to": "plantowatch", "ids": combine_ids(p["ids"])} for p in plex_only_movies]
-        if enable_add and plex_only_shows:
-            simkl_add_payload["shows"] = [{"to": "plantowatch", "ids": combine_ids(p["ids"])} for p in plex_only_shows]
-        if simkl_add_payload:
-            if debug:
-                print(f"[debug] SIMKL add payload (two-way):\n{json.dumps(simkl_add_payload, indent=2)}")
-            r = requests.post(SIMKL_ADD_TO_LIST, headers=hdrs_simkl, json=simkl_add_payload, timeout=45)
-            if not r.ok:
-                print(ANSI_R + f"[!] SIMKL add-to-list failed: HTTP {r.status_code} {r.text}" + ANSI_X)
-            else:
-                total_added = len(simkl_add_payload.get("movies", [])) + len(simkl_add_payload.get("shows", []))
-                if total_added:
-                    print(f"[✓] Added Plex→SIMKL items: {total_added}")
+    # Load previous state (for true two-way with deletions)
+    prev_state = load_state(STATE_PATH)
 
-        plex_added = 0
-        if enable_add:
-            for it in simkl_only_movies:
-                if plex_add_by_ids(acct, it["ids"], "movie", debug=debug):
-                    plex_added += 1
-            for it in simkl_only_shows:
-                if plex_add_by_ids(acct, it["ids"], "show", debug=debug):
-                    plex_added += 1
-        if plex_added:
-            print(f"[✓] Added SIMKL→Plex items: {plex_added}")
+    # Track failures; if any write fails, we won't save state to avoid losing deltas
+    any_failure = False
+    added_simkl = removed_simkl = added_plex = removed_plex = 0
+
+    if bidi_enabled and mode == "two-way":
+        if prev_state is None:
+            # First run: safe seeding (adds only)
+            if enable_add:
+                simkl_add_payload = {}
+                if plex_only_movies:
+                    simkl_add_payload["movies"] = [{"to": "plantowatch", "ids": combine_ids(p["ids"])} for p in plex_only_movies]
+                if plex_only_shows:
+                    simkl_add_payload["shows"] = [{"to": "plantowatch", "ids": combine_ids(p["ids"])} for p in plex_only_shows]
+                if simkl_add_payload:
+                    if debug:
+                        print(f"[debug] SIMKL add payload (first-run seed):\n{json.dumps(simkl_add_payload, indent=2)}")
+                    r = requests.post(SIMKL_ADD_TO_LIST, headers=hdrs_simkl, json=simkl_add_payload, timeout=45)
+                    if not r.ok:
+                        print(ANSI_R + f"[!] SIMKL add-to-list failed: HTTP {r.status_code} {r.text}" + ANSI_X)
+                        any_failure = True
+                    else:
+                        added_simkl = len(simkl_add_payload.get("movies", [])) + len(simkl_add_payload.get("shows", []))
+                        if added_simkl:
+                            print(f"[✓] Added Plex→SIMKL items: {added_simkl}")
+                if enable_add:
+                    for it in simkl_only_movies:
+                        if plex_add_by_ids(acct, it["ids"], "movie", debug=debug):
+                            added_plex += 1
+                        else:
+                            any_failure = True
+                    for it in simkl_only_shows:
+                        if plex_add_by_ids(acct, it["ids"], "show", debug=debug):
+                            added_plex += 1
+                        else:
+                            any_failure = True
+                    if added_plex:
+                        print(f"[✓] Added SIMKL→Plex items: {added_plex}")
+
+            # Save initial snapshot even if some adds failed? Safer to only save on clean run.
+            if any_failure:
+                print(ANSI_R + "[!] Some actions failed; NOT saving state so the changes will retry on the next run." + ANSI_X)
+            else:
+                save_state(STATE_PATH, snapshot_for_state(plex_idx, simkl_idx))
+                if debug:
+                    print("[debug] First-run seed complete; state saved.")
+        else:
+            # True two-way with deletions based on deltas vs last state
+            prev_plex_idx  = (prev_state.get("plex") or {}).get("items") or {}
+            prev_simkl_idx = (prev_state.get("simkl") or {}).get("items") or {}
+
+            new_plex_keys  = set(plex_idx.keys())
+            old_plex_keys  = set(prev_plex_idx.keys())
+            new_simkl_keys = set(simkl_idx.keys())
+            old_simkl_keys = set(prev_simkl_idx.keys())
+
+            plex_added_keys   = new_plex_keys - old_plex_keys
+            plex_removed_keys = old_plex_keys - new_plex_keys
+            simkl_added_keys  = new_simkl_keys - old_simkl_keys
+            simkl_removed_keys= old_simkl_keys - new_simkl_keys
+
+            if debug:
+                print(f"[debug] deltas: plex_added={len(plex_added_keys)} plex_removed={len(plex_removed_keys)} "
+                      f"simkl_added={len(simkl_added_keys)} simkl_removed={len(simkl_removed_keys)}")
+
+            # Propagate Plex deltas -> SIMKL
+            if enable_add and plex_added_keys:
+                payload = {"movies": [], "shows": []}
+                for k in plex_added_keys:
+                    rec = plex_idx.get(k)
+                    if not rec:
+                        continue
+                    to = "movies" if rec["type"] == "movie" else "shows"
+                    payload[to].append({"to": "plantowatch", "ids": combine_ids(rec["ids"])})
+                # prune empties
+                payload = {k: v for k, v in payload.items() if v}
+                if payload:
+                    if debug:
+                        print(f"[debug] SIMKL add payload (plex→simkl via deltas):\n{json.dumps(payload, indent=2)}")
+                    r = requests.post(SIMKL_ADD_TO_LIST, headers=hdrs_simkl, json=payload, timeout=45)
+                    if not r.ok:
+                        print(ANSI_R + f"[!] SIMKL add-to-list failed: HTTP {r.status_code} {r.text}" + ANSI_X)
+                        any_failure = True
+                    else:
+                        added_simkl += sum(len(v) for v in payload.values())
+
+            if enable_remove and plex_removed_keys:
+                payload = {"movies": [], "shows": []}
+                for k in plex_removed_keys:
+                    rec = prev_plex_idx.get(k)  # use old snapshot to retrieve ids
+                    if not rec:
+                        continue
+                    to = "movies" if rec["type"] == "movie" else "shows"
+                    payload[to].append({"ids": combine_ids(rec["ids"])})
+                payload = {k: v for k, v in payload.items() if v}
+                if payload:
+                    if debug:
+                        print(f"[debug] SIMKL remove payload (plex→simkl via deltas):\n{json.dumps(payload, indent=2)}")
+                    r = requests.post(SIMKL_HISTORY_REMOVE, headers=hdrs_simkl, json=payload, timeout=45)
+                    if not r.ok:
+                        print(ANSI_R + f"[!] SIMKL history/remove failed: HTTP {r.status_code} {r.text}" + ANSI_X)
+                        any_failure = True
+                    else:
+                        removed_simkl += sum(len(v) for v in payload.values())
+
+            # Propagate SIMKL deltas -> Plex
+            if enable_add and simkl_added_keys:
+                for k in simkl_added_keys:
+                    rec = simkl_idx.get(k)
+                    if not rec:
+                        continue
+                    ok = plex_add_by_ids(acct, rec["ids"], rec["type"], debug=debug)
+                    if ok:
+                        added_plex += 1
+                    else:
+                        any_failure = True
+
+            if enable_remove and simkl_removed_keys:
+                for k in simkl_removed_keys:
+                    rec = prev_simkl_idx.get(k)  # use old snapshot to retrieve ids
+                    if not rec:
+                        continue
+                    ok = plex_remove_by_ids(acct, rec["ids"], rec["type"], debug=debug)
+                    if ok:
+                        removed_plex += 1
+                    else:
+                        any_failure = True
+
+            # Save updated snapshot only if all actions succeeded
+            if any_failure:
+                print(ANSI_R + "[!] Some actions failed; NOT saving state so the changes will retry on the next run." + ANSI_X)
+            else:
+                save_state(STATE_PATH, snapshot_for_state(plex_idx, simkl_idx))
+                if debug:
+                    print("[debug] State updated after successful two-way delta sync.")
+
+            # Summary lines (optional)
+            if added_simkl:
+                print(f"[✓] PLEX→SIMKL adds applied: {added_simkl}")
+            if removed_simkl:
+                print(f"[✓] PLEX→SIMKL removals applied: {removed_simkl}")
+            if added_plex or removed_plex:
+                print(f"[✓] SIMKL→PLEX applied: +{added_plex} / -{removed_plex}")
 
     elif bidi_enabled and mode == "mirror":
         if source_of_truth == "plex":
@@ -893,6 +1127,7 @@ def main():
                 r = requests.post(SIMKL_ADD_TO_LIST, headers=hdrs_simkl, json=simkl_add_payload, timeout=45)
                 if not r.ok:
                     print(ANSI_R + f"[!] SIMKL add-to-list failed: HTTP {r.status_code} {r.text}" + ANSI_X)
+                    any_failure = True
                 else:
                     total_added = len(simkl_add_payload.get("movies", [])) + len(simkl_add_payload.get("shows", []))
                     if total_added:
@@ -909,6 +1144,7 @@ def main():
                 r = requests.post(SIMKL_HISTORY_REMOVE, headers=hdrs_simkl, json=simkl_rm_payload, timeout=45)
                 if not r.ok:
                     print(ANSI_R + f"[!] SIMKL history/remove failed: HTTP {r.status_code} {r.text}" + ANSI_X)
+                    any_failure = True
                 else:
                     total_removed = len(simkl_rm_payload.get("movies", [])) + len(simkl_rm_payload.get("shows", []))
                     if total_removed:
@@ -921,18 +1157,32 @@ def main():
                 for it in simkl_only_movies:
                     if plex_add_by_ids(acct, it["ids"], "movie", debug=debug):
                         added += 1
+                    else:
+                        any_failure = True
                 for it in simkl_only_shows:
                     if plex_add_by_ids(acct, it["ids"], "show", debug=debug):
                         added += 1
+                    else:
+                        any_failure = True
             if enable_remove:
                 for p in plex_only_movies:
                     if plex_remove_by_ids(acct, p["ids"], "movie", debug=debug):
                         removed += 1
+                    else:
+                        any_failure = True
                 for p in plex_only_shows:
                     if plex_remove_by_ids(acct, p["ids"], "show", debug=debug):
                         removed += 1
+                    else:
+                        any_failure = True
             if added or removed:
                 print(f"[✓] MIRROR(simkl): added {added} to Plex; removed {removed} from Plex.")
+
+        # Update state snapshot after mirror if all ok
+        if not any_failure:
+            save_state(STATE_PATH, snapshot_for_state(plex_idx, simkl_idx))
+        else:
+            print(ANSI_R + "[!] Some actions failed; NOT saving state so the changes will retry on the next run." + ANSI_X)
 
     else:
         # One-way: Plex -> SIMKL
@@ -947,6 +1197,7 @@ def main():
             r = requests.post(SIMKL_ADD_TO_LIST, headers=hdrs_simkl, json=simkl_add_payload, timeout=45)
             if not r.ok:
                 print(ANSI_R + f"[!] SIMKL add-to-list failed: HTTP {r.status_code} {r.text}" + ANSI_X)
+                any_failure = True
             else:
                 total_added = len(simkl_add_payload.get("movies", [])) + len(simkl_add_payload.get("shows", []))
                 if total_added:
@@ -963,10 +1214,17 @@ def main():
             r = requests.post(SIMKL_HISTORY_REMOVE, headers=hdrs_simkl, json=rm_payload, timeout=45)
             if not r.ok:
                 print(ANSI_R + f"[!] SIMKL history/remove failed: HTTP {r.status_code} {r.text}" + ANSI_X)
+                any_failure = True
             else:
                 total_removed = len(rm_payload.get("movies", [])) + len(rm_payload.get("shows", []))
                 if total_removed:
                     print(f"[✓] Removed SIMKL-only items: {total_removed}")
+
+        # Update state snapshot after one-way if all ok
+        if not any_failure:
+            save_state(STATE_PATH, snapshot_for_state(plex_idx, simkl_idx))
+        else:
+            print(ANSI_R + "[!] Some actions failed; NOT saving state so the changes will retry on the next run." + ANSI_X)
 
     # 4) Post-check
     plex_items_after = plex_fetch_watchlist_items(acct, plex_token, debug=debug)

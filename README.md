@@ -5,14 +5,13 @@ This tool compares both lists and applies additions/removals so they end up in s
 
 ---
 
-[!WARNING] **plexapi requirement (critical).**
+## ✅ WARNING **plexapi requirement (critical).**
 This tool depends on recent changes in `plexapi` (Discover-based Watchlist read/write; see PR [#1542](https://github.com/pushingkarmaorg/python-plexapi/pull/1542) in the pushingkarmaorg fork). Without those changes:
 
 * Reading your Plex Watchlist via `plexapi` may 404 with: `Section 'watchlist' not found!`
-* * The script will fall back to **read-only** Discover HTTP, so **Plex adds/removes will fail**.
+* The script will fall back to **read-only** Discover HTTP, so **Plex adds/removes will fail**.
 
  **Action:** Install the patched `plexapi` from GitHub now, or wait until the fix is released on PyPI.
-
 
 ## ✅ Features
 

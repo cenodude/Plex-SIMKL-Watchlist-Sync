@@ -1,4 +1,4 @@
-# Plex ⇄ SIMKL Watchlist Sync (v0.1)
+![Plex ⇄ SIMKL Watchlist Sync](Plex-SIMKL.jpg)
 
 Keep your **Plex Watchlist** and **SIMKL “Plan to Watch”** list aligned.  
 This tool compares both lists and applies additions/removals so they end up in sync — safely and predictably.

@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-
 """
 Plex ⇄ SIMKL Watchlist Sync (v0.2)
 ==================================
@@ -24,20 +23,18 @@ Run on your own device with browser:
 Notes:
 - `<HOST>` must be an address/hostname reachable by your browser (e.g., the server or container IP when using headless-mode).
 - Add the exact callback URL `http://<HOST>:8787/callback` to your SIMKL app’s Redirect URIs.
-- The command starts a tiny local web server to receive the SIMKL OAuth
-  redirect. Open the printed authorization link and the script will store
-  tokens in `config.json`.
+- The command starts a tiny local web server to receive the SIMKL OAuth redirect. Open the printed authorization link and the script will store tokens in `config.json`.
 
 Requirements
 ------------
 - Python 3.8+.
-- `requests` and `plexapi` installed in the same Python environment. Requires the latest plexapi 4.17.1 or higher
+- `requests` and `plexapi` installed in the same Python environment. Requires plexapi 4.17.1+.
 - A `config.json` next to the script (a starter file is created on first run).
 
 Disclaimer
 ----------
-This tool is community-made and not affiliated with Plex or SIMKL.  
-Use at your own risk. Always keep backups of your Plex and SIMKL data.  
+This tool is community-made and not affiliated with Plex or SIMKL.
+Use at your own risk. Always keep backups of your Plex and SIMKL data.
 I am not responsible for API changes, data loss, or account issues.
 
 GitHub: https://github.com/cenodude/Plex-SIMKL-Watchlist-Sync
@@ -88,15 +85,14 @@ DEFAULT_CONFIG = {
     "sync": {
         "enable_add": True,
         "enable_remove": True,
-        "verify_after_write": True,
         "bidirectional": {
             "enabled": True,
             "mode": "two-way",          # "two-way" or "mirror"
             "source_of_truth": "plex"   # used only when mode="mirror": "simkl" or "plex"
         },
         "activity": {
-            "use_activity": True,       # use SIMKL activities + date_from
-            "types": ["watchlist"]      # keep for future; currently PTW deltas
+            "use_activity": True,
+            "types": ["watchlist"]
         }
     },
     "runtime": {
@@ -120,7 +116,7 @@ def load_config_file(path: Path) -> dict:
         cfg = json.loads(_read_text(path))
     except Exception as e:
         sys.exit(f"[!] Could not parse {path} as JSON: {e}")
-    # ensure sections
+    # ensure sections and defaults
     for k, v in DEFAULT_CONFIG.items():
         if k not in cfg:
             cfg[k] = v
@@ -131,12 +127,6 @@ def load_config_file(path: Path) -> dict:
 
 def dump_config_file(path: Path, cfg: dict):
     _write_text(path, json.dumps(cfg, indent=2))
-
-def ensure_config_exists(path: Path) -> bool:
-    if path.exists():
-        return False
-    dump_config_file(path, DEFAULT_CONFIG)
-    return True
 
 # --------------------------- State -------------------------------------------
 def load_state(path: Path) -> Optional[dict]:
@@ -231,7 +221,7 @@ def _http_get_json(url: str, headers: dict, params: dict | None=None, debug: boo
         return None
 
 def simkl_get_ptw_full(simkl_cfg: dict, debug: bool=False) -> Tuple[List[dict], List[dict]]:
-    """One-time full PTW pull (movies, shows)."""
+    """One-time full PTW pull (movies, shows). Returns (shows, movies)."""
     hdrs = simkl_headers(simkl_cfg)
     shows_js  = _http_get_json(f"{SIMKL_ALL_ITEMS}/shows/plantowatch", hdrs, debug=debug)
     movies_js = _http_get_json(f"{SIMKL_ALL_ITEMS}/movies/plantowatch", hdrs, debug=debug)
@@ -240,6 +230,7 @@ def simkl_get_ptw_full(simkl_cfg: dict, debug: bool=False) -> Tuple[List[dict], 
     return shows_items, movies_items
 
 def ids_from_simkl_item(it: dict) -> dict:
+    """Extract ids/title/year from a SIMKL 'movie'/'show' wrapper or 'ids' node."""
     node = None
     for k in ("movie", "show", "anime", "ids"):
         if isinstance(it.get(k), dict):
@@ -269,6 +260,7 @@ def ids_from_simkl_item(it: dict) -> dict:
     return ids
 
 def combine_ids(ids: dict) -> dict:
+    """Keep only the identifiers SIMKL accepts in payloads (+title/year for Plex resolving)."""
     out = {}
     for k in ("imdb", "tmdb", "tvdb", "slug", "title", "year"):
         if k in ids and ids[k] is not None:
@@ -291,7 +283,7 @@ def canonical_identity(ids: dict) -> Optional[Tuple[str, str]]:
 
 def identity_key(pair: Tuple[str, str]) -> str:
     return f"{pair[0]}:{pair[1]}"
-    
+
 # --------------------------- Activities / Deltas ------------------------------
 def simkl_get_activities(simkl_cfg: dict, debug: bool=False) -> dict:
     """
@@ -337,24 +329,19 @@ def simkl_get_activities(simkl_cfg: dict, debug: bool=False) -> dict:
     }
 
 def needs_fetch(curr_ts: str | None, prev_ts: str | None) -> bool:
-    """
-    True if curr_ts is newer than prev_ts. Missing values -> no fetch.
-    """
+    """True if curr_ts is newer than prev_ts. Missing values -> no fetch."""
     if not curr_ts:
         return False
     return iso_to_epoch(curr_ts) > iso_to_epoch(prev_ts)
-
 
 def iso_to_epoch(s: str | None) -> int:
     if not s:
         return 0
     try:
-        # Handle "2025-08-23T19:03:55Z" and with fractions
         from datetime import datetime, timezone
         try:
             dt = datetime.fromisoformat(s.replace("Z","+00:00"))
         except Exception:
-            # fallback parse
             from email.utils import parsedate_to_datetime
             dt = parsedate_to_datetime(s)
         return int(dt.replace(tzinfo=timezone.utc).timestamp())
@@ -364,12 +351,11 @@ def iso_to_epoch(s: str | None) -> int:
 def allitems_delta(simkl_cfg: dict, typ: str, status: str, since_iso: str, debug: bool=False) -> List[dict]:
     """
     Fetch delta for given type/status since since_iso.
-    type: "movies" | "shows" (SIMKL uses "tv" in some docs, endpoint uses 'shows' here for watchlist)
+    type: "movies" | "shows"
     status: "plantowatch" | "completed" | "dropped" | "watching"
     Returns raw list of items (each has nested movie/show + ids).
     """
     hdrs = simkl_headers(simkl_cfg)
-    # endpoint path segment uses 'movies' and 'shows'
     base = f"{SIMKL_ALL_ITEMS}/{'movies' if typ=='movies' else 'shows'}/{status}"
     params = {"date_from": since_iso}
     js = _http_get_json(base, hdrs, params=params, debug=debug) or {}
@@ -377,6 +363,7 @@ def allitems_delta(simkl_cfg: dict, typ: str, status: str, since_iso: str, debug
     return js.get(key, []) or []
 
 def build_index(rows_movies: List[dict], rows_shows: List[dict]):
+    """Build a flat index keyed by canonical id (e.g., imdb:tt123)."""
     idx: Dict[str, dict] = {}
     for r in rows_movies:
         ids = combine_ids(r["ids"])
@@ -403,6 +390,7 @@ def build_index(rows_movies: List[dict], rows_shows: List[dict]):
     return idx
 
 def build_index_from_simkl(simkl_movies: List[dict], simkl_shows: List[dict]):
+    """Build index from SIMKL API items (movies list, shows list)."""
     idx: Dict[str, dict] = {}
     for m in simkl_movies:
         ids = combine_ids(ids_from_simkl_item(m))
@@ -410,18 +398,14 @@ def build_index_from_simkl(simkl_movies: List[dict], simkl_shows: List[dict]):
         if not pair:
             continue
         node = (m.get("movie") or m.get("show") or {})
-        title = node.get("title")
-        year = ids.get("year")
-        idx[identity_key(pair)] = {"type": "movie", "ids": ids, "title": title, "year": year}
+        idx[identity_key(pair)] = {"type": "movie", "ids": ids, "title": node.get("title"), "year": ids.get("year")}
     for s in simkl_shows:
         ids = combine_ids(ids_from_simkl_item(s))
         pair = canonical_identity(ids)
         if not pair:
             continue
         node = (s.get("show") or s.get("movie") or {})
-        title = node.get("title")
-        year = ids.get("year")
-        idx[identity_key(pair)] = {"type": "show", "ids": ids, "title": title, "year": year}
+        idx[identity_key(pair)] = {"type": "show", "ids": ids, "title": node.get("title"), "year": ids.get("year")}
     return idx
 
 def apply_simkl_deltas(prev_idx: Dict[str, dict],
@@ -431,23 +415,21 @@ def apply_simkl_deltas(prev_idx: Dict[str, dict],
                        debug: bool=False) -> Dict[str, dict]:
     """
     Update previous PTW index using SIMKL /sync/activities.
-    Strategy:
-      - If no previous state or activities: fetch full PTW list (movies + shows).
-      - If the plantowatch timestamp for movies/shows changed: refresh the entire set
-        for that type (this covers both additions and pure deletions).
-      - If completed/dropped/watching changed: remove those IDs from the PTW index.
+    - No previous state: full PTW fetch.
+    - plantowatch changed: full refresh for that type (covers pure deletes + additions).
+    - completed/dropped/watching changed: remove those from the PTW index.
     """
     idx = dict(prev_idx or {})
 
-    # Initial seed: no previous activities or empty index
+    # Initial seed
     if not prev_acts or not prev_idx:
         if debug:
             print("[debug] No previous state; doing full PTW fetch.")
-        shows_list, movies_list = simkl_get_ptw_full(simkl_cfg, debug=debug)  # returns (shows, movies)
+        shows_list, movies_list = simkl_get_ptw_full(simkl_cfg, debug=debug)  # (shows, movies)
         idx = build_index_from_simkl(movies_list, shows_list)
         return idx
 
-    # Helper: full refresh for one type (movies or shows)
+    # Full refresh helper
     def _refresh_type(typ: str):
         hdrs = simkl_headers(simkl_cfg)
         path_type = "movies" if typ == "movies" else "shows"
@@ -462,16 +444,14 @@ def apply_simkl_deltas(prev_idx: Dict[str, dict],
                 continue
             key = identity_key(pair2)
             node = (it.get("movie") or it.get("show") or {})
-            title = node.get("title")
-            year = ids2.get("year")
             fresh[key] = {
                 "type": "movie" if typ == "movies" else "show",
                 "ids": ids2,
-                "title": title,
-                "year": year
+                "title": node.get("title"),
+                "year": ids2.get("year")
             }
 
-        # Remove all existing items of this type and replace with fresh set
+        # Replace existing items of this type
         to_delete = [k for k, v in idx.items() if v.get("type") == ("movie" if typ == "movies" else "show")]
         for k in to_delete:
             idx.pop(k, None)
@@ -480,33 +460,26 @@ def apply_simkl_deltas(prev_idx: Dict[str, dict],
         if debug:
             print(f"[debug] SIMKL {typ}.plantowatch full refresh: {len(fresh)} items (replaced {len(to_delete)})")
 
-    # Process movies and shows sections
+    # Process sections
     for typ, section in (("movies", "movies"), ("shows", "tv_shows")):
         prev = (prev_acts.get(section) or {})
         curr = (curr_acts.get(section) or {})
 
-        # Refresh PTW set if plantowatch timestamp changed
         if needs_fetch(curr.get("plantowatch"), prev.get("plantowatch")):
             _refresh_type(typ)
 
-        # Remove items if completed/dropped/watching changed
         for st in ("completed", "dropped", "watching"):
             if needs_fetch(curr.get(st), prev.get(st)):
                 since = prev.get(st) or "1970-01-01T00:00:00Z"
-                rows = allitems_delta(simkl_cfg,
-                                      typ=("movies" if typ == "movies" else "shows"),
-                                      status=st,
-                                      since_iso=since,
-                                      debug=debug)
+                rows = allitems_delta(simkl_cfg, typ=("movies" if typ == "movies" else "shows"),
+                                      status=st, since_iso=since, debug=debug)
                 if debug:
                     print(f"[debug] SIMKL delta {typ}.{st} items: {len(rows)} (prune from PTW)")
                 for it in rows:
                     ids = combine_ids(ids_from_simkl_item(it))
                     pair = canonical_identity(ids)
-                    if not pair:
-                        continue
-                    key = identity_key(pair)
-                    idx.pop(key, None)
+                    if pair:
+                        idx.pop(identity_key(pair), None)
 
     return idx
 
@@ -514,7 +487,6 @@ def apply_simkl_deltas(prev_idx: Dict[str, dict],
 try:
     import plexapi
     from plexapi.myplex import MyPlexAccount  # type: ignore
-    from plexapi.exceptions import NotFound as PlexNotFound  # type: ignore
 except Exception:
     py = Path(sys.executable)
     pip = py.with_name("pip")
@@ -551,7 +523,6 @@ def _extract_ids_from_guid_strings(guid_values: List[str]) -> Tuple[Optional[str
 def _plexapi_upgrade_hint(where: str, exc: Exception | None, debug: bool):
     v = getattr(plexapi, "__version__", "?")
     pip_bin = Path(sys.executable).with_name("pip")
-    python_bin = Path(sys.executable)
     print("")
     print(ANSI_R + "[!] Plex API call failed" + ANSI_X)
     print(f"    While: {where} (plexapi {v})")
@@ -561,7 +532,6 @@ def _plexapi_upgrade_hint(where: str, exc: Exception | None, debug: bool):
         print(f"    [debug] Error: {repr(exc)}")
     sys.exit(1)
 
-# Read via plexapi (preferred)
 def plex_fetch_watchlist_items_via_plexapi(acct: MyPlexAccount, debug: bool=False) -> Optional[List[object]]:
     try:
         movies = acct.watchlist(libtype="movie")
@@ -685,7 +655,7 @@ def plex_fetch_watchlist_items(acct: MyPlexAccount, plex_token: str, debug: bool
     return plex_fetch_watchlist_items_via_discover(plex_token, page_size=100, debug=debug)
 
 def plex_item_to_ids(item) -> dict:
-    # Extract IDs from plexapi item or our dict row
+    """Extract imdb/tmdb/tvdb + title/year from a plexapi item or fallback dict row."""
     if isinstance(item, dict):
         ids = item.get("ids") or {}
         title = item.get("title")
@@ -718,7 +688,7 @@ def item_libtype(item) -> str:
     return "show" if t == "show" else "movie"
 
 def resolve_discover_item(acct: MyPlexAccount, ids: dict, libtype: str, debug: bool=False):
-    # Try by imdb/tmdb/tvdb/title+year
+    """Resolve a Plex Discover metadata item by imdb/tmdb/tvdb or title+year."""
     queries: List[str] = []
     if ids.get("imdb"):
         queries.append(ids["imdb"])
@@ -792,6 +762,7 @@ def plex_remove_by_ids(acct: MyPlexAccount, ids: dict, libtype: str, debug: bool
                 print("[debug] treat as success: item already absent on Plex")
             return True
         return False
+
 # --------------------------- Sync helpers ------------------------------------
 def neutral_precheck_msg(plex_total: int, simkl_total: int):
     if plex_total == simkl_total:
@@ -805,23 +776,15 @@ def colored_postcheck(plex_total: int, simkl_total: int):
     color = ANSI_G if ok else ANSI_R
     print(f"[i] Post-sync: Plex={plex_total} vs SIMKL={simkl_total} → {color}{msg}{ANSI_X}")
 
-def gather_plex_sets(items: List[object | dict]) -> Tuple[List[dict], Set[Tuple[str, str]], Set[Tuple[str, str]]]:
-    parsed: List[dict] = []
-    plex_movies_set: Set[Tuple[str, str]] = set()
-    plex_shows_set: Set[Tuple[str, str]] = set()
+def gather_plex_rows(items: List[object | dict]) -> List[dict]:
+    """Normalize Plex items into rows with type/title/year/ids."""
+    rows: List[dict] = []
     for it in items:
         libtype = item_libtype(it)
         ids_full = plex_item_to_ids(it)
         ids = {k: v for k, v in ids_full.items() if k in ("imdb", "tmdb", "tvdb", "slug") and v}
-        row = {"type": libtype, "title": ids_full.get("title"), "year": ids_full.get("year"), "ids": ids}
-        parsed.append(row)
-        if ids:
-            idset = idset_from_ids(ids)
-            if libtype == "movie":
-                plex_movies_set |= idset
-            else:
-                plex_shows_set |= idset
-    return parsed, plex_movies_set, plex_shows_set
+        rows.append({"type": libtype, "title": ids_full.get("title"), "year": ids_full.get("year"), "ids": ids})
+    return rows
 
 def snapshot_for_state(plex_idx: Dict[str, dict], simkl_idx: Dict[str, dict], last_activities: dict) -> dict:
     return {"plex": {"items": plex_idx}, "simkl": {"items": simkl_idx, "last_activities": last_activities}}
@@ -833,15 +796,14 @@ def build_parser() -> argparse.ArgumentParser:
     ./plex_simkl_watchlist_sync.py --init-simkl redirect --bind 0.0.0.0:8787
 
   Initialize SIMKL tokens-browser mode (opens the browser on your device)
-     ./plex_simkl_watchlist_sync.py --init-simkl redirect --bind 0.0.0.0:8787 --open
-     
+    ./plex_simkl_watchlist_sync.py --init-simkl redirect --bind 0.0.0.0:8787 --open
+
   Reset local state:
     ./plex_simkl_watchlist_sync.py --reset-state
-    
+
   Run synchronization:
     ./plex_simkl_watchlist_sync.py --sync
 """
-
     ap = argparse.ArgumentParser(
         prog="plex_simkl_watchlist_sync.py",
         description="Sync Plex Watchlist with SIMKL PTW using activities + date_from.",
@@ -1024,8 +986,6 @@ def main():
 
     if not simkl_cfg.get("client_id") or not simkl_cfg.get("client_secret"):
         print("[!] Missing SIMKL client credentials in config.json")
-        print("    Then run: ./plex_simkl_watchlist_sync.py --init-simkl redirect --bind 0.0.0.0:8787")
-        return
     if not simkl_cfg.get("access_token"):
         print("[!] No SIMKL access_token. Initialize tokens first.")
         return
@@ -1047,13 +1007,13 @@ def main():
     prev_plex_idx  = ((prev_state.get("plex") or {}).get("items") or {})
     prev_simkl_idx = ((prev_state.get("simkl") or {}).get("items") or {})
     prev_acts      = ((prev_state.get("simkl") or {}).get("last_activities") or {})
-    
+
     first_run = (not prev_state) or (not prev_simkl_idx) or (not prev_acts)
 
     # 1) Pull Plex
     plex_items = plex_fetch_watchlist_items(acct, plex_token, debug=debug)
     print(f"[i] Plex items: {len(plex_items)}")
-    plex_rows, plex_movies_set, plex_shows_set = gather_plex_sets(plex_items)
+    plex_rows = gather_plex_rows(plex_items)
     plex_movies_rows = [r for r in plex_rows if r["type"] == "movie"]
     plex_shows_rows  = [r for r in plex_rows if r["type"] == "show"]
     plex_idx = build_index(plex_movies_rows, plex_shows_rows)
@@ -1063,10 +1023,6 @@ def main():
     curr_acts = {}
     if bool(act_cfg.get("use_activity", True)):
         curr_acts = simkl_get_activities(simkl_cfg, debug=debug)
-        # If nothing changed at all on SIMKL and we already have an index, keep it
-        if not prev_acts or prev_simkl_idx is None:
-            # do full seed inside apply_simkl_deltas
-            pass
         simkl_idx = apply_simkl_deltas(prev_simkl_idx, simkl_cfg, prev_acts, curr_acts, debug=debug)
     else:
         # Fallback: full PTW each time (not ideal)
@@ -1086,7 +1042,6 @@ def main():
     simkl_movies_keys= keyset(simkl_idx, "movie")
     simkl_shows_keys = keyset(simkl_idx, "show")
 
-    # Only-by-side sets (by identity key)
     plex_only_movies_keys  = plex_movies_keys - simkl_movies_keys
     plex_only_shows_keys   = plex_shows_keys  - simkl_shows_keys
     simkl_only_movies_keys = simkl_movies_keys- plex_movies_keys
@@ -1107,7 +1062,6 @@ def main():
     added_simkl = removed_simkl = added_plex = removed_plex = 0
     hdrs_simkl = simkl_headers(simkl_cfg)
 
-    # Helpers to materialize ids by key
     def ids_by_key(idx: Dict[str, dict], k: str) -> dict:
         return (idx.get(k) or {}).get("ids") or {}
 
@@ -1160,7 +1114,6 @@ def main():
             if debug:
                 print(f"[debug] deltas: plex +{len(plex_added_keys)} / -{len(plex_removed_keys)} | simkl +{len(simkl_added_keys)} / -{len(simkl_removed_keys)}")
 
-            # --- 1) handle deltas first ---
             # Plex → SIMKL (adds)
             if enable_add and plex_added_keys:
                 payload = {"movies": [], "shows": []}
@@ -1326,7 +1279,6 @@ def main():
         save_state(STATE_PATH, snapshot_for_state(plex_idx, simkl_idx, curr_acts or prev_acts or {}))
         if debug:
             print("[debug] State updated.")
-
 
 if __name__ == "__main__":
     try:

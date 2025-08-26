@@ -91,7 +91,7 @@ DEFAULT_CONFIG = {
         "verify_after_write": True,
         "bidirectional": {
             "enabled": True,
-            "mode": "two-way",          # "two-way" (union) or "mirror"
+            "mode": "two-way",          # "two-way" or "mirror"
             "source_of_truth": "plex"   # used only when mode="mirror": "simkl" or "plex"
         },
         "activity": {
@@ -292,24 +292,33 @@ def canonical_identity(ids: dict) -> Optional[Tuple[str, str]]:
 
 def identity_key(pair: Tuple[str, str]) -> str:
     return f"{pair[0]}:{pair[1]}"
+    
 # --------------------------- Activities / Deltas ------------------------------
 def simkl_get_activities(simkl_cfg: dict, debug: bool=False) -> dict:
     """
-    Returns structure:
-    {
-      "movies": {"all": "...", "plantowatch": "...", "watching": "...", "completed": "...", "dropped": "..."},
-      "tv_shows": {...},
-      "anime": {...},
-      "all": "..."
-    }
-    Timestamps are ISO8601 strings from SIMKL.
+    Normalize SIMKL /sync/activities into a stable shape.
+    Handles 'all' as string or object, and 'tv_shows' vs 'shows'.
     """
     hdrs = simkl_headers(simkl_cfg)
     js = _http_get_json(SIMKL_ACTIVITIES, hdrs, debug=debug) or {}
-    out = {"all": (js.get("all") or {}).get("all")}
-    for sec_in, sec_out in (("movies","movies"), ("tv_shows","tv_shows"), ("anime","anime")):
-        sec = js.get(sec_in) or {}
-        row = {
+
+    # top-level "all" may be a string or {"all": "..."}
+    all_raw = js.get("all")
+    all_val = all_raw.get("all") if isinstance(all_raw, dict) else all_raw
+
+    def _pick_section(j, *names):
+        for n in names:
+            sec = j.get(n)
+            if isinstance(sec, dict):
+                return sec
+        return {}
+
+    movies_sec = _pick_section(js, "movies")
+    shows_sec  = _pick_section(js, "tv_shows", "shows")
+    anime_sec  = _pick_section(js, "anime")
+
+    def _norm(sec: dict) -> dict:
+        return {
             "all": sec.get("all"),
             "rated_at": sec.get("rated_at"),
             "plantowatch": sec.get("plantowatch"),
@@ -317,8 +326,22 @@ def simkl_get_activities(simkl_cfg: dict, debug: bool=False) -> dict:
             "dropped": sec.get("dropped"),
             "watching": sec.get("watching"),
         }
-        out[sec_out] = row
-    return out
+
+    return {
+        "all": all_val,
+        "movies": _norm(movies_sec),
+        "tv_shows": _norm(shows_sec),
+        "anime": _norm(anime_sec),
+    }
+
+def needs_fetch(curr_ts: str | None, prev_ts: str | None) -> bool:
+    """
+    True if curr_ts is newer than prev_ts. Missing values -> no fetch.
+    """
+    if not curr_ts:
+        return False
+    return iso_to_epoch(curr_ts) > iso_to_epoch(prev_ts)
+
 
 def iso_to_epoch(s: str | None) -> int:
     if not s:
@@ -337,6 +360,11 @@ def iso_to_epoch(s: str | None) -> int:
         return 0
 
 def needs_fetch(curr_ts: str | None, prev_ts: str | None) -> bool:
+    """
+    True als curr_ts recenter is dan prev_ts. Ontbrekende waarden -> geen fetch.
+    """
+    if not curr_ts:
+        return False
     return iso_to_epoch(curr_ts) > iso_to_epoch(prev_ts)
 
 def allitems_delta(simkl_cfg: dict, typ: str, status: str, since_iso: str, debug: bool=False) -> List[dict]:
@@ -787,21 +815,22 @@ def snapshot_for_state(plex_idx: Dict[str, dict], simkl_idx: Dict[str, dict], la
 # --------------------------- CLI / Main --------------------------------------
 def build_parser() -> argparse.ArgumentParser:
     epilog = """examples:
-  Initialize SIMKL tokens:
-    ./plex_simkl_watchlist_sync.py --init-simkl redirect --bind 0.0.0.0:8787 --open
+  Initialize SIMKL tokens-headless mode:
+    ./plex_simkl_watchlist_sync.py --init-simkl redirect --bind 0.0.0.0:8787
 
-  Run sync:
-    ./plex_simkl_watchlist_sync.py --sync
-
-  Override Plex token:
-    ./plex_simkl_watchlist_sync.py --sync --plex-account-token <TOKEN>
-
+  Initialize SIMKL tokens-browser mode (opens the browser on your device)
+     ./plex_simkl_watchlist_sync.py --init-simkl redirect --bind 0.0.0.0:8787 --open
+     
   Reset local state:
     ./plex_simkl_watchlist_sync.py --reset-state
+    
+  Run synchronization:
+    ./plex_simkl_watchlist_sync.py --sync
 """
+
     ap = argparse.ArgumentParser(
         prog="plex_simkl_watchlist_sync.py",
-        description="Sync Plex Watchlist with SIMKL.",
+        description="Sync Plex Watchlist with SIMKL PTW using activities + date_from.",
         formatter_class=argparse.RawTextHelpFormatter,
         epilog=epilog,
     )
@@ -815,7 +844,7 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--reset-state", action="store_true", help="Delete state.json (next run will re-seed)")
     return ap
 
-# ----- OAuth helper (unchanged except small copy tweaks) ----------------------
+# ----- OAuth helper  ----------------------
 def detect_local_ip(fallback: str="localhost") -> str:
     import socket
     try:
@@ -938,7 +967,7 @@ def main():
 
     if args.version:
         import plexapi
-        print(f"Script version: {__VERSION__}")
+        print(f"Plex_SIMKL_Watchlist_Sync version: {__VERSION__}")
         print(f"plexapi version: {getattr(plexapi, '__version__', '?')}")
         return
 
@@ -1004,6 +1033,8 @@ def main():
     prev_plex_idx  = ((prev_state.get("plex") or {}).get("items") or {})
     prev_simkl_idx = ((prev_state.get("simkl") or {}).get("items") or {})
     prev_acts      = ((prev_state.get("simkl") or {}).get("last_activities") or {})
+    
+    first_run = (not prev_state) or (not prev_simkl_idx) or (not prev_acts)
 
     # 1) Pull Plex
     plex_items = plex_fetch_watchlist_items(acct, plex_token, debug=debug)
@@ -1068,7 +1099,7 @@ def main():
 
     # ---- two-way logic with deltas on SIMKL side ----
     if bidi_enabled and mode == "two-way":
-        if not prev_state:
+        if first_run:
             # First run: safe seeding (adds only both ways)
             if enable_add:
                 payload = {}
@@ -1077,7 +1108,8 @@ def main():
                 if plex_only_shows_keys:
                     payload["shows"] = [{"to": "plantowatch", "ids": combine_ids(ids_by_key(plex_idx, k))} for k in plex_only_shows_keys]
                 if payload:
-                    if debug: print(f"[debug] SIMKL add payload (seed): {json.dumps(payload, indent=2)}")
+                    if debug:
+                        print(f"[debug] SIMKL add payload (seed): {json.dumps(payload, indent=2)}")
                     r = requests.post(SIMKL_ADD_TO_LIST, headers=hdrs_simkl, json=payload, timeout=45)
                     if not r.ok:
                         print(ANSI_R + f"[!] SIMKL add-to-list failed: HTTP {r.status_code} {r.text}" + ANSI_X)
@@ -1113,6 +1145,101 @@ def main():
 
             if debug:
                 print(f"[debug] deltas: plex +{len(plex_added_keys)} / -{len(plex_removed_keys)} | simkl +{len(simkl_added_keys)} / -{len(simkl_removed_keys)}")
+
+            # --- 1) handle deltas first ---
+            # Plex → SIMKL (adds)
+            if enable_add and plex_added_keys:
+                payload = {"movies": [], "shows": []}
+                for k in plex_added_keys:
+                    rec = plex_idx.get(k)
+                    if not rec:
+                        continue
+                    to = "movies" if rec["type"] == "movie" else "shows"
+                    payload[to].append({"to": "plantowatch", "ids": combine_ids(rec["ids"])})
+                payload = {k: v for k, v in payload.items() if v}
+                if payload:
+                    if debug:
+                        print(f"[debug] SIMKL add payload (plex→simkl): {json.dumps(payload, indent=2)}")
+                    r = requests.post(SIMKL_ADD_TO_LIST, headers=hdrs_simkl, json=payload, timeout=45)
+                    if not r.ok:
+                        print(ANSI_R + f"[!] SIMKL add-to-list failed: HTTP {r.status_code} {r.text}" + ANSI_X)
+                        any_failure = True
+                    else:
+                        added_simkl += sum(len(v) for v in payload.values())
+
+            # Plex → SIMKL (removes)
+            if enable_remove and plex_removed_keys:
+                payload = {"movies": [], "shows": []}
+                for k in plex_removed_keys:
+                    rec = (prev_plex_idx.get(k) or {})
+                    if not rec:
+                        continue
+                    to = "movies" if rec.get("type") == "movie" else "shows"
+                    payload[to].append({"ids": combine_ids(rec.get("ids") or {})})
+                payload = {k: v for k, v in payload.items() if v}
+                if payload:
+                    if debug:
+                        print(f"[debug] SIMKL remove payload (plex→simkl): {json.dumps(payload, indent=2)}")
+                    r = requests.post(SIMKL_HISTORY_REMOVE, headers=hdrs_simkl, json=payload, timeout=45)
+                    if not r.ok:
+                        print(ANSI_R + f"[!] SIMKL history/remove failed: HTTP {r.status_code} {r.text}" + ANSI_X)
+                        any_failure = True
+                    else:
+                        removed_simkl += sum(len(v) for v in payload.values())
+
+            # SIMKL → Plex (adds)
+            if enable_add and simkl_added_keys:
+                for k in simkl_added_keys:
+                    rec = simkl_idx.get(k)
+                    if not rec:
+                        continue
+                    if plex_add_by_ids(acct, rec["ids"], rec["type"], debug=debug):
+                        added_plex += 1
+                    else:
+                        any_failure = True
+
+            # SIMKL → Plex (removes)
+            if enable_remove and simkl_removed_keys:
+                for k in simkl_removed_keys:
+                    rec = (prev_simkl_idx.get(k) or {})
+                    if not rec:
+                        continue
+                    if plex_remove_by_ids(acct, rec.get("ids") or {}, rec.get("type") or "movie", debug=debug):
+                        removed_plex += 1
+                    else:
+                        any_failure = True
+
+            # --- 2) reconcile union adds (after deltas) ---
+            if enable_add:
+                # SIMKL-only -> add to Plex
+                for k in (simkl_only_movies_keys | simkl_only_shows_keys):
+                    rec = simkl_idx.get(k)
+                    if not rec:
+                        continue
+                    if plex_add_by_ids(acct, rec["ids"], rec["type"], debug=debug):
+                        added_plex += 1
+                    else:
+                        any_failure = True
+
+                # PLEX-only -> add to SIMKL
+                payload = {"movies": [], "shows": []}
+                for k in (plex_only_movies_keys | plex_only_shows_keys):
+                    rec = plex_idx.get(k)
+                    if not rec:
+                        continue
+                    to = "movies" if rec["type"] == "movie" else "shows"
+                    payload[to].append({"to": "plantowatch", "ids": combine_ids(rec["ids"])})
+                payload = {k: v for k, v in payload.items() if v}
+                if payload:
+                    if debug:
+                        print(f"[debug] SIMKL add payload (reconcile): {json.dumps(payload, indent=2)}")
+                    r = requests.post(SIMKL_ADD_TO_LIST, headers=hdrs_simkl, json=payload, timeout=45)
+                    if not r.ok:
+                        print(ANSI_R + f"[!] SIMKL add-to-list failed (reconcile): HTTP {r.status_code} {r.text}" + ANSI_X)
+                        any_failure = True
+                    else:
+                        added_simkl += sum(len(v) for v in payload.values())
+
 
             # Plex → SIMKL
             if enable_add and plex_added_keys:
@@ -1255,9 +1382,16 @@ def main():
             print("[debug] State updated.")
 
     # 5) Post-check
-    # We can avoid extra SIMKL calls; just compare current counts
     plex_items_after = plex_fetch_watchlist_items(acct, plex_token, debug=debug)
-    colored_postcheck(len(plex_items_after), len(simkl_idx))
+    simkl_total_after = len(simkl_idx)
+    if debug:
+        # Confirm SIMKL count via a light full PTW read (debug only)
+        try:
+            shows_dbg, movies_dbg = simkl_get_ptw_full(simkl_cfg, debug=debug)
+            simkl_total_after = len(shows_dbg) + len(movies_dbg)
+        except Exception:
+            pass
+    colored_postcheck(len(plex_items_after), simkl_total_after)
 
 if __name__ == "__main__":
     try:

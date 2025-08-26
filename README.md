@@ -8,17 +8,15 @@ This tool compares both lists and applies additions/removals so they end up in s
 ## ✅ Features
 
 - **Two-way sync** between Plex and SIMKL.
-- **Plex writes use `plexapi` only** (add/remove). No custom HTTP hacks for writes.
-- **Read fallback for Plex**: If `plexapi` cannot read your Plex Watchlist (temporary upstream change),
+- **Plex writes use `plexapi` ** (add/remove)
+- **Read fallback for Plex**: If `plexapi` cannot read your Plex Watchlist (example: temporary upstream change),
   the script **falls back to Plex Discover HTTP** for *read-only* watchlist fetching. Writes still use `plexapi`.
 - **Clear modes**:
   - **`two-way` (default)** — symmetric sync.  
     - **First run:** *adds only* (seeds a local snapshot to avoid accidental deletes).  
     - **Subsequent runs:** *adds and deletions* both ways, based on deltas vs the snapshot.
   - **`mirror`** — make one side exactly match the other (adds + deletions) using `source_of_truth` (`plex` or `simkl`).
-  - **One-way** — turn off bidirectional if you only want Plex → SIMKL.
 - **Built-in SIMKL OAuth redirect helper** (`--init-simkl redirect`) to obtain tokens easily.
-- **Colored final result**: only the *post-sync* comparison is green/red (“EQUAL/NOT EQUAL”).
 
 ---
 
@@ -36,7 +34,6 @@ This tool compares both lists and applies additions/removals so they end up in s
 > **Note**: Because Plex write endpoints change occasionally, **writes always go through `plexapi`**. If add/remove fails, upgrade `plexapi` and try again.
 
 ---
-
 ## 📦 Requirements
 
 - **Python 3.8+**

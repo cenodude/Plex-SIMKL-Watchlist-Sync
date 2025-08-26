@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 """
-Plex ⇄ SIMKL Watchlist Sync (v0.2)
+Plex ⇄ SIMKL Watchlist Sync (v0.2a)
 ==================================
 
 Keep your Plex Watchlist and SIMKL “Plan to Watch” list in sync. This tool adds and removes items so both services stay aligned.

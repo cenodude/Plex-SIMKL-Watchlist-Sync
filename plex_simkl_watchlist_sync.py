@@ -162,7 +162,6 @@ def clear_state(path: Path):
 
 def print_banner():
     print(f"\nPlex ⇄ SIMKL Watchlist Sync Version {__VERSION__}")
-    print("activity-first + date_from deltas\n")
 
 # --------------------------- SIMKL API ---------------------------------------
 SIMKL_BASE = "https://api.simkl.com"
@@ -318,6 +317,9 @@ def simkl_get_activities(simkl_cfg: dict, debug: bool=False) -> dict:
     anime_sec  = _pick_section(js, "anime")
 
     def _norm(sec: dict) -> dict:
+        if not isinstance(sec, dict):
+            return {"all": None, "rated_at": None, "plantowatch": None,
+                    "completed": None, "dropped": None, "watching": None}
         return {
             "all": sec.get("all"),
             "rated_at": sec.get("rated_at"),

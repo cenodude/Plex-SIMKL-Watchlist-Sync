@@ -26,7 +26,7 @@ Sync modes
 SIMKL sign-in (OAuth)
 ---------------------
 Run:
-  --init-simkl redirect --bind <HOST>:8787 [--open]
+  --init-simkl redirect --bind <HOST>:8787
 
 Notes:
 - `<HOST>` must be an address/hostname reachable by your browser (e.g., the
@@ -40,7 +40,7 @@ Notes:
 Requirements
 ------------
 - Python 3.8+.
-- `requests` and `plexapi` installed in the same Python environment. Requires the latest plexapi
+- `requests` and `plexapi` installed in the same Python environment. Requires the latest plexapi 4.17.1 or higher
 - A `config.json` next to the script (a starter file is created on first run).
 """
 
@@ -74,7 +74,7 @@ DISCOVER_HOST = "https://discover.provider.plex.tv"
 PLEX_WATCHLIST_PATH = "/library/sections/watchlist/all"
 PLEX_METADATA_PATH = "/library/metadata"
 
-# Default config scaffold (Python dict comments are fine; JSON file has no comments)
+# Default config
 DEFAULT_CONFIG = {
     "plex": {
         "account_token": ""
@@ -101,7 +101,7 @@ DEFAULT_CONFIG = {
     }
 }
 
-# --------------------------- Config I/O --------------------------------------
+# --------------------------- Configuration--------------------------------------
 def _read_text(p: Path) -> str:
     with open(p, "r", encoding="utf-8") as f:
         return f.read()
@@ -132,7 +132,7 @@ def ensure_config_exists(path: Path) -> bool:
     dump_config_file(path, DEFAULT_CONFIG)
     return True
 
-# --------------------------- State I/O ---------------------------------------
+# --------------------------- State logics---------------------------------------
 def load_state(path: Path) -> Optional[dict]:
     if not path.exists():
         return None

@@ -41,8 +41,8 @@ This tool compares both lists and applies additions/removals so they end up in s
 
 - **Python 3.8+**
 - Python packages: **`requests`**, **`plexapi`**
+- PlexAPI 4.17.1 or higher. Validate if you have the correct version or pip install -U plexapi
 - A `config.json` next to the script (auto-created on first run)
-- PlexAPI 4.17.1 or higher
 - A SIMKL application (client id/secret)
 - A Plex account token
 

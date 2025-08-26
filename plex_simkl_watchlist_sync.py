@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+
 """
 Plex ⇄ SIMKL Watchlist Sync (v0.2)
 ==================================
@@ -27,7 +28,7 @@ Notes:
 
 Requirements
 ------------
-- Python 3.8+.
+- Python 3.10+ (type annotations use modern syntax).
 - `requests` and `plexapi` installed in the same Python environment. Requires plexapi 4.17.1+.
 - A `config.json` next to the script (a starter file is created on first run).
 
@@ -51,7 +52,7 @@ import webbrowser
 import secrets
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
-from typing import Tuple, List, Dict, Set, Optional
+from typing import Any, Sequence, Tuple, List, Dict, Set, Optional, NoReturn, cast
 
 __VERSION__ = "0.2"
 
@@ -105,7 +106,7 @@ def _read_text(p: Path) -> str:
     with open(p, "r", encoding="utf-8") as f:
         return f.read()
 
-def _write_text(p: Path, s: str):
+def _write_text(p: Path, s: str) -> None:
     with open(p, "w", encoding="utf-8") as f:
         f.write(s)
 
@@ -125,7 +126,7 @@ def load_config_file(path: Path) -> dict:
                 cfg[k].setdefault(kk, vv)
     return cfg
 
-def dump_config_file(path: Path, cfg: dict):
+def dump_config_file(path: Path, cfg: dict) -> None:
     _write_text(path, json.dumps(cfg, indent=2))
 
 # --------------------------- State -------------------------------------------
@@ -137,20 +138,20 @@ def load_state(path: Path) -> Optional[dict]:
     except Exception:
         return None
 
-def save_state(path: Path, data: dict):
+def save_state(path: Path, data: dict) -> None:
     data = dict(data)
     data["version"] = 2
     data["last_sync_epoch"] = int(time.time())
     _write_text(path, json.dumps(data, indent=2))
 
-def clear_state(path: Path):
+def clear_state(path: Path) -> None:
     try:
         if path.exists():
             path.unlink()
     except Exception:
         pass
 
-def print_banner():
+def print_banner() -> None:
     print(f"\nPlex ⇄ SIMKL Watchlist Sync Version {__VERSION__}")
 
 # --------------------------- SIMKL API ---------------------------------------
@@ -178,7 +179,7 @@ def token_expired(simkl_cfg: dict) -> bool:
         exp = 0.0
     return time.time() >= (exp - 60)
 
-def simkl_refresh(cfg: dict, cfg_path: Path, debug: bool=False):
+def simkl_refresh(cfg: dict, cfg_path: Path, debug: bool=False) -> dict:
     s = cfg.get("simkl") or {}
     if not s.get("refresh_token"):
         if debug:
@@ -206,7 +207,7 @@ def simkl_refresh(cfg: dict, cfg_path: Path, debug: bool=False):
 def _cb() -> str:
     return str(int(time.time() * 1000))
 
-def _http_get_json(url: str, headers: dict, params: dict | None=None, debug: bool=False):
+def _http_get_json(url: str, headers: dict, params: Optional[dict]=None, debug: bool=False):
     params = dict(params or {})
     params["_cb"] = _cb()
     if debug:
@@ -328,13 +329,13 @@ def simkl_get_activities(simkl_cfg: dict, debug: bool=False) -> dict:
         "anime": _norm(anime_sec),
     }
 
-def needs_fetch(curr_ts: str | None, prev_ts: str | None) -> bool:
+def needs_fetch(curr_ts: Optional[str], prev_ts: Optional[str]) -> bool:
     """True if curr_ts is newer than prev_ts. Missing values -> no fetch."""
     if not curr_ts:
         return False
     return iso_to_epoch(curr_ts) > iso_to_epoch(prev_ts)
 
-def iso_to_epoch(s: str | None) -> int:
+def iso_to_epoch(s: Optional[str]) -> int:
     if not s:
         return 0
     try:
@@ -362,7 +363,7 @@ def allitems_delta(simkl_cfg: dict, typ: str, status: str, since_iso: str, debug
     key = "movies" if typ == "movies" else "shows"
     return js.get(key, []) or []
 
-def build_index(rows_movies: List[dict], rows_shows: List[dict]):
+def build_index(rows_movies: List[dict], rows_shows: List[dict]) -> Dict[str, dict]:
     """Build a flat index keyed by canonical id (e.g., imdb:tt123)."""
     idx: Dict[str, dict] = {}
     for r in rows_movies:
@@ -389,7 +390,7 @@ def build_index(rows_movies: List[dict], rows_shows: List[dict]):
         }
     return idx
 
-def build_index_from_simkl(simkl_movies: List[dict], simkl_shows: List[dict]):
+def build_index_from_simkl(simkl_movies: List[dict], simkl_shows: List[dict]) -> Dict[str, dict]:
     """Build index from SIMKL API items (movies list, shows list)."""
     idx: Dict[str, dict] = {}
     for m in simkl_movies:
@@ -410,7 +411,7 @@ def build_index_from_simkl(simkl_movies: List[dict], simkl_shows: List[dict]):
 
 def apply_simkl_deltas(prev_idx: Dict[str, dict],
                        simkl_cfg: dict,
-                       prev_acts: dict | None,
+                       prev_acts: Optional[dict],
                        curr_acts: dict,
                        debug: bool=False) -> Dict[str, dict]:
     """
@@ -430,7 +431,7 @@ def apply_simkl_deltas(prev_idx: Dict[str, dict],
         return idx
 
     # Full refresh helper
-    def _refresh_type(typ: str):
+    def _refresh_type(typ: str) -> None:
         hdrs = simkl_headers(simkl_cfg)
         path_type = "movies" if typ == "movies" else "shows"
         full_js = _http_get_json(f"{SIMKL_ALL_ITEMS}/{path_type}/plantowatch", hdrs, debug=debug) or {}
@@ -520,7 +521,7 @@ def _extract_ids_from_guid_strings(guid_values: List[str]) -> Tuple[Optional[str
                 pass
     return imdb, tmdb, tvdb
 
-def _plexapi_upgrade_hint(where: str, exc: Exception | None, debug: bool):
+def _plexapi_upgrade_hint(where: str, exc: Optional[Exception], debug: bool) -> NoReturn:
     v = getattr(plexapi, "__version__", "?")
     pip_bin = Path(sys.executable).with_name("pip")
     print("")
@@ -577,14 +578,14 @@ def _discover_metadata_by_ratingkey(token: str, rating_key: str, debug: bool=Fal
     md = (data.get("MediaContainer", {}).get("Metadata") or [])
     return md[0] if md else None
 
-def plex_fetch_watchlist_items_via_discover(token: str, page_size: int=100, debug: bool=False) -> List[dict]:
+def plex_fetch_watchlist_items_via_discover(token: str, page_size: int=100, debug: bool=False) -> List[dict[str, Any]]:
     params_base = {"includeCollections": "1", "includeExternalMedia": "1"}
     start = 0
-    items: List[dict] = []
+    items: List[dict[str, Any]] = []
     while True:
         params = dict(params_base)
-        params["X-Plex-Container-Start"] = start
-        params["X-Plex-Container-Size"] = page_size
+        params["X-Plex-Container-Start"] = str(start)     # ensure string
+        params["X-Plex-Container-Size"]  = str(page_size) # ensure string
         data = _discover_get(PLEX_WATCHLIST_PATH, token, params, timeout=20)
         if not data:
             if debug:
@@ -617,7 +618,7 @@ def plex_fetch_watchlist_items_via_discover(token: str, page_size: int=100, debu
             if not any([imdb, tmdb, tvdb]) and rating_key:
                 enriched = _discover_metadata_by_ratingkey(token, rating_key, debug=debug)
                 if enriched:
-                    e_guids = []
+                    e_guids: List[str] = []
                     if isinstance(enriched.get("Guid"), list):
                         for gg in enriched["Guid"]:
                             if isinstance(gg, dict) and "id" in gg:
@@ -629,7 +630,7 @@ def plex_fetch_watchlist_items_via_discover(token: str, page_size: int=100, debu
                         allg = list(dict.fromkeys(guid_values + e_guids))
                         print(f"[debug] Enriched '{title}' (rk={rating_key}) GUIDs: {allg}")
 
-            ids = {}
+            ids: Dict[str, Any] = {}
             if imdb:
                 ids["imdb"] = imdb
             if tmdb is not None:
@@ -646,7 +647,9 @@ def plex_fetch_watchlist_items_via_discover(token: str, page_size: int=100, debu
     return items
 
 # Mixed fetch
-def plex_fetch_watchlist_items(acct: MyPlexAccount, plex_token: str, debug: bool=False) -> List[object | dict]:
+def plex_fetch_watchlist_items(
+    acct: MyPlexAccount, plex_token: str, debug: bool=False
+) -> Sequence[object | dict[str, Any]]:
     items = plex_fetch_watchlist_items_via_plexapi(acct, debug=debug)
     if items is not None:
         return items
@@ -654,13 +657,13 @@ def plex_fetch_watchlist_items(acct: MyPlexAccount, plex_token: str, debug: bool
         print("[debug] Falling back to Discover HTTP for watchlist read")
     return plex_fetch_watchlist_items_via_discover(plex_token, page_size=100, debug=debug)
 
-def plex_item_to_ids(item) -> dict:
+def plex_item_to_ids(item: Any) -> Dict[str, Any]:
     """Extract imdb/tmdb/tvdb + title/year from a plexapi item or fallback dict row."""
     if isinstance(item, dict):
         ids = item.get("ids") or {}
         title = item.get("title")
         year = item.get("year")
-        out = {"title": title, "year": year}
+        out: Dict[str, Any] = {"title": title, "year": year}
         out.update({k: v for k, v in ids.items() if v is not None})
         return {k: v for k, v in out.items() if v is not None}
 
@@ -678,16 +681,16 @@ def plex_item_to_ids(item) -> dict:
     if isinstance(gsingle, str):
         guid_values.append(gsingle)
     imdb, tmdb, tvdb = _extract_ids_from_guid_strings(guid_values)
-    out = {"title": title, "year": year, "imdb": imdb, "tmdb": tmdb, "tvdb": tvdb}
+    out: Dict[str, Any] = {"title": title, "year": year, "imdb": imdb, "tmdb": tmdb, "tvdb": tvdb}
     return {k: v for k, v in out.items() if v}
 
-def item_libtype(item) -> str:
+def item_libtype(item: Any) -> str:
     if isinstance(item, dict):
         return "show" if item.get("type") == "show" else "movie"
     t = getattr(item, "type", "movie")
     return "show" if t == "show" else "movie"
 
-def resolve_discover_item(acct: MyPlexAccount, ids: dict, libtype: str, debug: bool=False):
+def resolve_discover_item(acct: MyPlexAccount, ids: dict, libtype: str, debug: bool = False) -> Optional[Any]:
     """Resolve a Plex Discover metadata item by imdb/tmdb/tvdb or title+year."""
     queries: List[str] = []
     if ids.get("imdb"):
@@ -699,11 +702,17 @@ def resolve_discover_item(acct: MyPlexAccount, ids: dict, libtype: str, debug: b
     if ids.get("title"):
         queries.append(ids["title"])
 
+    # Optionally de-duplicate while preserving order
+    queries = list(dict.fromkeys(queries))
+
     for q in queries:
+        hits: Sequence[Any] = []  # ensure it's always defined for type checker
         try:
             hits = acct.searchDiscover(q, libtype=libtype) or []
         except Exception as e:
             _plexapi_upgrade_hint("MyPlexAccount.searchDiscover(libtype=...)", e, debug)
+            hits = []  # unreachable (above exits), but keeps Pylance happy
+
         for md in hits:
             md_ids = plex_item_to_ids(md)
             if ids.get("imdb") and md_ids.get("imdb") == ids.get("imdb"):
@@ -714,8 +723,9 @@ def resolve_discover_item(acct: MyPlexAccount, ids: dict, libtype: str, debug: b
                 return md
             if ids.get("title") and ids.get("year"):
                 try:
-                    if (str(md_ids.get("title","")).strip().lower() == str(ids["title"]).strip().lower() and
-                        int(md_ids.get("year",0)) == int(ids["year"])):
+                    same_title = str(md_ids.get("title", "")).strip().lower() == str(ids["title"]).strip().lower()
+                    same_year = int(md_ids.get("year", 0)) == int(ids["year"])
+                    if same_title and same_year:
                         return md
                 except Exception:
                     pass
@@ -728,7 +738,7 @@ def plex_add_by_ids(acct: MyPlexAccount, ids: dict, libtype: str, debug: bool=Fa
             print(f"[debug] plexapi add: could not resolve {ids}")
         return False
     try:
-        it.addToWatchlist(account=acct)
+        cast(Any, it).addToWatchlist(account=acct)  # satisfy type checker
         if debug:
             print(f"[debug] plexapi add OK: {getattr(it, 'title', ids)}")
         return True
@@ -749,7 +759,7 @@ def plex_remove_by_ids(acct: MyPlexAccount, ids: dict, libtype: str, debug: bool
             print(f"[debug] plexapi remove: could not resolve {ids}")
         return False
     try:
-        it.removeFromWatchlist(account=acct)
+        cast(Any, it).removeFromWatchlist(account=acct)  # satisfy type checker
         if debug:
             print(f"[debug] plexapi remove OK: {getattr(it, 'title', ids)}")
         return True
@@ -764,21 +774,21 @@ def plex_remove_by_ids(acct: MyPlexAccount, ids: dict, libtype: str, debug: bool
         return False
 
 # --------------------------- Sync helpers ------------------------------------
-def neutral_precheck_msg(plex_total: int, simkl_total: int):
+def neutral_precheck_msg(plex_total: int, simkl_total: int) -> None:
     if plex_total == simkl_total:
         print(f"[i] Pre-sync counts: Plex={plex_total} vs SIMKL={simkl_total} (equal)")
     else:
         print(f"[i] Pre-sync counts: Plex={plex_total} vs SIMKL={simkl_total} (differences)")
 
-def colored_postcheck(plex_total: int, simkl_total: int):
+def colored_postcheck(plex_total: int, simkl_total: int) -> None:
     ok = plex_total == simkl_total
     msg = "EQUAL" if ok else "NOT EQUAL"
     color = ANSI_G if ok else ANSI_R
     print(f"[i] Post-sync: Plex={plex_total} vs SIMKL={simkl_total} → {color}{msg}{ANSI_X}")
 
-def gather_plex_rows(items: List[object | dict]) -> List[dict]:
+def gather_plex_rows(items: Sequence[object | dict[str, Any]]) -> List[dict[str, Any]]:
     """Normalize Plex items into rows with type/title/year/ids."""
-    rows: List[dict] = []
+    rows: List[dict[str, Any]] = []
     for it in items:
         libtype = item_libtype(it)
         ids_full = plex_item_to_ids(it)
@@ -806,7 +816,7 @@ def build_parser() -> argparse.ArgumentParser:
 """
     ap = argparse.ArgumentParser(
         prog="plex_simkl_watchlist_sync.py",
-        description="Sync Plex Watchlist with SIMKL PTW using activities + date_from.",
+        description="Sync Plex Watchlist with SIMKL.",
         formatter_class=argparse.RawTextHelpFormatter,
         epilog=epilog,
     )
@@ -834,7 +844,7 @@ def detect_local_ip(fallback: str="localhost") -> str:
         pass
     return fallback
 
-def build_simkl_authorize_url(client_id: str, redirect_uri: str, state: str = "", scope: str | None = None) -> str:
+def build_simkl_authorize_url(client_id: str, redirect_uri: str, state: str = "", scope: Optional[str] = None) -> str:
     params = {"response_type": "code", "client_id": client_id, "redirect_uri": redirect_uri}
     if state:
         params["state"] = state
@@ -865,17 +875,17 @@ def simkl_exchange_code_for_tokens(code: str, redirect_uri: str, simkl_cfg: dict
     return tok
 
 class _RedirectHandler(BaseHTTPRequestHandler):
-    def _html(self, body: str, status: int=200):
+    def _html(self, body: str, status: int=200) -> None:
         self.send_response(status)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.end_headers()
         self.wfile.write(body.encode("utf-8"))
 
-    def log_message(self, fmt, *args):
+    def log_message(self, fmt, *args) -> None:  # type: ignore[override]
         if getattr(self.server, "debug", False):
             super().log_message(fmt, *args)
 
-    def do_GET(self):
+    def do_GET(self) -> None:  # type: ignore[override]
         parsed = urllib.parse.urlparse(self.path)
         if parsed.path != "/callback":
             return self._html("<h3>Not Found</h3>", 404)
@@ -884,11 +894,11 @@ class _RedirectHandler(BaseHTTPRequestHandler):
         state = (qs.get("state") or [""])[0].strip()
         if not code:
             return self._html("<h3>Missing ?code</h3>", 400)
-        if self.server.expected_state and state and state != self.server.expected_state:
+        if self.server.expected_state and state and state != self.server.expected_state:  # type: ignore[attr-defined]
             return self._html("<h3>State mismatch</h3>", 400)
         try:
             simkl_exchange_code_for_tokens(
-                code, self.server.redirect_uri, self.server.simkl_cfg, self.server.cfg_path, debug=self.server.debug
+                code, self.server.redirect_uri, self.server.simkl_cfg, self.server.cfg_path, debug=self.server.debug  # type: ignore[attr-defined]
             )
             return self._html("<h3>Success!</h3><p>Tokens saved. You can close this tab.</p>")
         except SystemExit as e:
@@ -896,7 +906,7 @@ class _RedirectHandler(BaseHTTPRequestHandler):
         except Exception as e:
             return self._html(f"<h3>Unexpected error</h3><pre>{e}</pre>", 500)
 
-def simkl_oauth_redirect(cfg_path: Path, bind_host: str="0.0.0.0", bind_port: int=8787, open_browser: bool=False, debug: bool=False):
+def simkl_oauth_redirect(cfg_path: Path, bind_host: str="0.0.0.0", bind_port: int=8787, open_browser: bool=False, debug: bool=False) -> None:
     cfg = load_config_file(cfg_path)
     s = cfg.get("simkl") or {}
     if not s.get("client_id") or not s.get("client_secret"):
@@ -908,11 +918,11 @@ def simkl_oauth_redirect(cfg_path: Path, bind_host: str="0.0.0.0", bind_port: in
     auth_url = build_simkl_authorize_url(s["client_id"], redirect_uri, state=state)
 
     srv = HTTPServer((bind_host, bind_port), _RedirectHandler)
-    srv.simkl_cfg = s
-    srv.cfg_path = cfg_path
-    srv.redirect_uri = redirect_uri
-    srv.expected_state = state
-    srv.debug = debug
+    srv.simkl_cfg = s            # type: ignore[attr-defined]
+    srv.cfg_path = cfg_path      # type: ignore[attr-defined]
+    srv.redirect_uri = redirect_uri  # type: ignore[attr-defined]
+    srv.expected_state = state   # type: ignore[attr-defined]
+    srv.debug = debug            # type: ignore[attr-defined]
 
     print("[i] Redirect helper is running")
     print(f"    Callback URL: {redirect_uri}")
@@ -934,7 +944,7 @@ def simkl_oauth_redirect(cfg_path: Path, bind_host: str="0.0.0.0", bind_port: in
         print("\n[!] Redirect helper stopped.")
 
 # --------------------------- Main --------------------------------------------
-def main():
+def main() -> None:
     ap = build_parser()
     if len(sys.argv) == 1:
         ap.print_help()
@@ -986,9 +996,17 @@ def main():
 
     if not simkl_cfg.get("client_id") or not simkl_cfg.get("client_secret"):
         print("[!] Missing SIMKL client credentials in config.json")
-    if not simkl_cfg.get("access_token"):
-        print("[!] No SIMKL access_token. Initialize tokens first.")
+        print("    Then run: ./plex_simkl_watchlist_sync.py --init-simkl redirect --bind 0.0.0.0:8787")
         return
+
+    if not simkl_cfg.get("access_token"):
+        if simkl_cfg.get("refresh_token"):
+            cfg = simkl_refresh(cfg, CONFIG_PATH, debug=debug)
+            simkl_cfg = cfg.get("simkl") or {}
+        if not simkl_cfg.get("access_token"):
+            print("[!] No SIMKL access_token. Initialize tokens first.")
+            print("    Then run: ./plex_simkl_watchlist_sync.py --init-simkl redirect --bind 0.0.0.0:8787")
+            return
 
     if token_expired(simkl_cfg):
         cfg = simkl_refresh(cfg, CONFIG_PATH, debug=debug)
@@ -1020,7 +1038,7 @@ def main():
 
     # 2) SIMKL activity-first
     simkl_idx = dict(prev_simkl_idx)
-    curr_acts = {}
+    curr_acts: dict = {}
     if bool(act_cfg.get("use_activity", True)):
         curr_acts = simkl_get_activities(simkl_cfg, debug=debug)
         simkl_idx = apply_simkl_deltas(prev_simkl_idx, simkl_cfg, prev_acts, curr_acts, debug=debug)
@@ -1070,7 +1088,7 @@ def main():
         if first_run:
             # First run: safe seeding (adds only both ways)
             if enable_add:
-                payload = {}
+                payload: Dict[str, List[dict]] = {}
                 if plex_only_movies_keys:
                     payload["movies"] = [{"to": "plantowatch", "ids": combine_ids(ids_by_key(plex_idx, k))} for k in plex_only_movies_keys]
                 if plex_only_shows_keys:
@@ -1116,7 +1134,7 @@ def main():
 
             # Plex → SIMKL (adds)
             if enable_add and plex_added_keys:
-                payload = {"movies": [], "shows": []}
+                payload: Dict[str, List[dict]] = {"movies": [], "shows": []}
                 for k in plex_added_keys:
                     rec = plex_idx.get(k)
                     if not rec:
@@ -1136,7 +1154,7 @@ def main():
 
             # Plex → SIMKL (removes)
             if enable_remove and plex_removed_keys:
-                payload = {"movies": [], "shows": []}
+                payload: Dict[str, List[dict]] = {"movies": [], "shows": []}
                 for k in plex_removed_keys:
                     rec = (prev_plex_idx.get(k) or {})
                     if not rec:
@@ -1179,7 +1197,7 @@ def main():
     elif bidi_enabled and mode == "mirror":
         if source_of_truth == "plex":
             # Make SIMKL match Plex
-            simkl_add_payload = {}
+            simkl_add_payload: Dict[str, List[dict]] = {}
             if enable_add and plex_only_movies_keys:
                 simkl_add_payload["movies"] = [{"to": "plantowatch", "ids": combine_ids(ids_by_key(plex_idx, k))} for k in plex_only_movies_keys]
             if enable_add and plex_only_shows_keys:
@@ -1195,7 +1213,7 @@ def main():
                     if added:
                         print(f"[✓] MIRROR(plex): added {added} to SIMKL")
 
-            rm_payload = {}
+            rm_payload: Dict[str, List[dict]] = {}
             if enable_remove and simkl_only_movies_keys:
                 rm_payload["movies"] = [{"ids": combine_ids(ids_by_key(simkl_idx, k))} for k in simkl_only_movies_keys]
             if enable_remove and simkl_only_shows_keys:
@@ -1232,7 +1250,7 @@ def main():
 
     else:
         # One-way: Plex -> SIMKL
-        payload = {}
+        payload: Dict[str, List[dict]] = {}
         if enable_add and (plex_only_movies_keys or plex_only_shows_keys):
             if plex_only_movies_keys:
                 payload["movies"] = [{"to": "plantowatch", "ids": combine_ids(ids_by_key(plex_idx, k))} for k in plex_only_movies_keys]
@@ -1245,7 +1263,7 @@ def main():
                 any_failure = True
 
         if enable_remove and (simkl_only_movies_keys or simkl_only_shows_keys):
-            rm_payload = {}
+            rm_payload: Dict[str, List[dict]] = {}
             if simkl_only_movies_keys:
                 rm_payload["movies"] = [{"ids": combine_ids(ids_by_key(simkl_idx, k))} for k in simkl_only_movies_keys]
             if simkl_only_shows_keys:

@@ -430,55 +430,74 @@ def apply_simkl_deltas(prev_idx: Dict[str, dict],
                        curr_acts: dict,
                        debug: bool=False) -> Dict[str, dict]:
     """
-    Update previous PTW index using activity-based deltas.
+    Update previous PTW index using SIMKL /sync/activities.
     Strategy:
-      - If no prev_acts or prev_idx empty: do a full PTW fetch.
-      - Else:
-          - If movies.plantowatch changed -> fetch PTW movie deltas and add/update in index.
-          - If shows.plantowatch  changed -> fetch PTW show  deltas and add/update in index.
-          - For each of movies/shows statuses completed/dropped/watching that changed ->
-              fetch deltas and remove those ids from PTW index (moved out).
+      - If no previous state or activities: fetch full PTW list (movies + shows).
+      - If the plantowatch timestamp for movies/shows changed: refresh the entire set
+        for that type (this covers both additions and pure deletions).
+      - If completed/dropped/watching changed: remove those IDs from the PTW index.
     """
     idx = dict(prev_idx or {})
+
+    # Initial seed: no previous activities or empty index
     if not prev_acts or not prev_idx:
         if debug:
             print("[debug] No previous state; doing full PTW fetch.")
-        shows, movies = simkl_get_ptw_full(simkl_cfg, debug=debug)
-        # Raw lists contain nested movie/show; convert to index
-        movies_idx = build_index_from_simkl(movies, [])
-        shows_idx  = build_index_from_simkl([], shows)
-        # merge
-        idx = {}
-        idx.update(movies_idx)
-        idx.update(shows_idx)
+        shows_list, movies_list = simkl_get_ptw_full(simkl_cfg, debug=debug)  # returns (shows, movies)
+        idx = build_index_from_simkl(movies_list, shows_list)
         return idx
 
-    for typ, section in (("movies","movies"), ("shows","tv_shows")):
+    # Helper: full refresh for one type (movies or shows)
+    def _refresh_type(typ: str):
+        hdrs = simkl_headers(simkl_cfg)
+        path_type = "movies" if typ == "movies" else "shows"
+        full_js = _http_get_json(f"{SIMKL_ALL_ITEMS}/{path_type}/plantowatch", hdrs, debug=debug) or {}
+        full_list = full_js.get("movies" if typ == "movies" else "shows", []) or []
+
+        fresh: Dict[str, dict] = {}
+        for it in full_list:
+            ids2 = combine_ids(ids_from_simkl_item(it))
+            pair2 = canonical_identity(ids2)
+            if not pair2:
+                continue
+            key = identity_key(pair2)
+            node = (it.get("movie") or it.get("show") or {})
+            title = node.get("title")
+            year = ids2.get("year")
+            fresh[key] = {
+                "type": "movie" if typ == "movies" else "show",
+                "ids": ids2,
+                "title": title,
+                "year": year
+            }
+
+        # Remove all existing items of this type and replace with fresh set
+        to_delete = [k for k, v in idx.items() if v.get("type") == ("movie" if typ == "movies" else "show")]
+        for k in to_delete:
+            idx.pop(k, None)
+        idx.update(fresh)
+
+        if debug:
+            print(f"[debug] SIMKL {typ}.plantowatch full refresh: {len(fresh)} items (replaced {len(to_delete)})")
+
+    # Process movies and shows sections
+    for typ, section in (("movies", "movies"), ("shows", "tv_shows")):
         prev = (prev_acts.get(section) or {})
         curr = (curr_acts.get(section) or {})
-        # Adds/updates into PTW
+
+        # Refresh PTW set if plantowatch timestamp changed
         if needs_fetch(curr.get("plantowatch"), prev.get("plantowatch")):
-            since = prev.get("plantowatch") or "1970-01-01T00:00:00Z"
-            rows = allitems_delta(simkl_cfg, typ="movies" if typ=="movies" else "shows",
-                                  status="plantowatch", since_iso=since, debug=debug)
-            if debug:
-                print(f"[debug] SIMKL delta {typ}.plantowatch items: {len(rows)}")
-            for it in rows:
-                ids = combine_ids(ids_from_simkl_item(it))
-                pair = canonical_identity(ids)
-                if not pair:
-                    continue
-                key = identity_key(pair)
-                node = (it.get("movie") or it.get("show") or {})
-                title = node.get("title")
-                year = ids.get("year")
-                idx[key] = {"type": ("movie" if typ=="movies" else "show"), "ids": ids, "title": title, "year": year}
-        # Removals from PTW after moved to other statuses
-        for st in ("completed","dropped","watching"):
+            _refresh_type(typ)
+
+        # Remove items if completed/dropped/watching changed
+        for st in ("completed", "dropped", "watching"):
             if needs_fetch(curr.get(st), prev.get(st)):
                 since = prev.get(st) or "1970-01-01T00:00:00Z"
-                rows = allitems_delta(simkl_cfg, typ="movies" if typ=="movies" else "shows",
-                                      status=st, since_iso=since, debug=debug)
+                rows = allitems_delta(simkl_cfg,
+                                      typ=("movies" if typ == "movies" else "shows"),
+                                      status=st,
+                                      since_iso=since,
+                                      debug=debug)
                 if debug:
                     print(f"[debug] SIMKL delta {typ}.{st} items: {len(rows)} (prune from PTW)")
                 for it in rows:
@@ -490,6 +509,7 @@ def apply_simkl_deltas(prev_idx: Dict[str, dict],
                     idx.pop(key, None)
 
     return idx
+
 # --------------------------- Plex (plexapi + read fallback) ------------------
 try:
     import plexapi
@@ -1283,25 +1303,30 @@ def main():
                 print(ANSI_R + f"[!] SIMKL history/remove failed: HTTP {r.status_code} {r.text}" + ANSI_X)
                 any_failure = True
 
-    # 4) Save snapshot if all ok
-    if any_failure:
-        print(ANSI_R + "[!] Some actions failed; NOT saving state so we retry next run." + ANSI_X)
-    else:
-        save_state(STATE_PATH, snapshot_for_state(plex_idx, simkl_idx, curr_acts or prev_acts or {}))
-        if debug:
-            print("[debug] State updated.")
-
-    # 5) Post-check
+    # Post-check and decide if we should persist state
     plex_items_after = plex_fetch_watchlist_items(acct, plex_token, debug=debug)
     simkl_total_after = len(simkl_idx)
     if debug:
-        # Confirm SIMKL count via a light full PTW read (debug only)
+        # Optional: verify SIMKL count by fetching current PTW lists
         try:
             shows_dbg, movies_dbg = simkl_get_ptw_full(simkl_cfg, debug=debug)
             simkl_total_after = len(shows_dbg) + len(movies_dbg)
         except Exception:
             pass
+
+    equal_counts = (len(plex_items_after) == simkl_total_after)
     colored_postcheck(len(plex_items_after), simkl_total_after)
+
+    # Save snapshot only if everything succeeded AND counts match
+    if any_failure or not equal_counts:
+        if debug and not equal_counts:
+            print("[debug] Skipping state save because counts differ after sync.")
+        print(ANSI_R + "[!] Some actions failed or counts differ; NOT saving state so we retry next run." + ANSI_X)
+    else:
+        save_state(STATE_PATH, snapshot_for_state(plex_idx, simkl_idx, curr_acts or prev_acts or {}))
+        if debug:
+            print("[debug] State updated.")
+
 
 if __name__ == "__main__":
     try:

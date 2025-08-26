@@ -99,21 +99,78 @@ A starter file is created on first run:
 
 ## 🔐 SIMKL OAuth (built-in helper)
 
-This script includes a tiny HTTP server to finish OAuth locally and save tokens to `config.json`.
+This script spins up a tiny local HTTP server to complete OAuth and save tokens into `config.json`.
 
-1. **Create a SIMKL app** at [https://simkl.com](https://simkl.com) → Developers.
-2. Set the **redirect URI** to:  
-   `http://<YOUR_SERVER_IP>:8787/callback`
-3. Run the helper:
-
-```bash
-./plex_simkl_watchlist_sync.py --init-simkl redirect --bind 0.0.0.0:8787 --open
-```
-
-- Replace `0.0.0.0` with the actual IP of the host/container!
-- The script prints an authorization link — open it, grant access, tokens are stored to `config.json`.
+### 1) Create your SIMKL app
+- Go to **simkl.com → Developers** and create an app.
+- Add the **exact** redirect URI you will use (must match what you launch the helper with):
+  ```
+  http://<HOST>:8787/callback
+  ```
+  > `<HOST>` must be reachable from the browser you’ll use to authorize (server IP/hostname for headless, or `127.0.0.1` for same-device).
 
 ---
+
+## Choose your setup
+
+### A) Headless server (Docker/NAS/VPS) — authorize from another device
+Use this when the script runs on a machine without a local browser.
+
+1. **Run the helper on the server** (no `--open`):
+   ```
+   ./plex_simkl_watchlist_sync.py --init-simkl redirect --bind 0.0.0.0:8787
+   ```
+2. The script prints a **Callback URL** and an **authorization link**.
+3. In your SIMKL app settings, make sure the Redirect URI uses the server’s real IP/hostname, e.g.:
+   ```
+   http://192.168.1.50:8787/callback
+   ```
+4. **On your laptop/phone**, open the printed authorization link, grant access, and wait for the “Success!” page.
+5. Tokens are saved to `config.json` on the server. You can stop the helper after it says the code was handled.
+
+**Notes**
+- If using Docker, expose the port: `-p 8787:8787`.
+- Ensure firewalls allow inbound TCP **8787** from your browser device.
+- You must replace `0.0.0.0` with a specific interface IP if you prefer.
+
+---
+
+### B) Same device (desktop/laptop) — helper opens your browser locally
+Use this when you run the script and complete OAuth on the **same** machine.
+
+1. **Run the helper with localhost and auto-open**:
+   ```
+   ./plex_simkl_watchlist_sync.py --init-simkl redirect --bind 127.0.0.1:8787 --open
+   ```
+2. Complete SIMKL login/consent in the browser tab that opens.
+3. Tokens are stored in `config.json` next to the script.
+
+**Notes**
+- Add this Redirect URI to your SIMKL app if you use the command above:
+  ```
+  http://127.0.0.1:8787/callback
+  ```
+  (You can also use `http://localhost:8787/callback` if you bind to `localhost`.)
+- If port **8787** is busy, pick another port and use it **both** in `--bind` and in the SIMKL app Redirect URI.
+
+---
+
+### After successful auth
+You’ll see logs like:
+```
+[i] Redirect helper is running
+Callback URL: http://<HOST>:8787/callback
+...
+[✓] Code handled; tokens saved if exchange succeeded.
+```
+
+`config.json` will now contain `simkl.access_token` (and `refresh_token` if provided).
+
+Run your sync normally:
+```
+./plex_simkl_watchlist_sync.py --sync
+```
+
 
 ## 🎟 Getting a Plex account token
 

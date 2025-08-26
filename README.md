@@ -336,19 +336,6 @@ Your SIMKL access token may be expired or the client credentials are wrong.
 
 ---
 
-## 🔒 Privacy
-
-- Tokens are stored **locally** in `config.json`.
-- The script only talks to **Plex** and **SIMKL**.
-
----
-
-## 📝 Notes
-
-- **Writes to Plex** always use `plexapi`. No HTTP fallbacks are attempted for add/remove.
-- **Only the final post-sync comparison** is colorized **EQUAL/NOT EQUAL** — the initial comparison is an informational pre-check.
-
----
 
 ## 📣 Support
 
@@ -357,3 +344,20 @@ Issues and suggestions are welcome. When reporting problems, include:
 - `plexapi` version (`./plex_simkl_watchlist_sync.py --version`)
 - Whether you ran with `--debug`
 - Redacted logs that show the failing operation
+
+---
+
+## 🔒 Disclaimer
+
+This project is a **community-made** utility and is **not affiliated with, endorsed by, or sponsored by** Plex, Inc. or SIMKL. All product names, logos, and brands are property of their respective owners.
+
+- **No Warranty.** The software is provided **“as is”**, without warranty of any kind, express or implied. Use it at your own risk.
+- **Data Safety.** Sync tools can add/remove items. **Back up your data** and verify results after each run. Review logs regularly.
+- **API/Platform Changes.** Plex and SIMKL may change or throttle their APIs at any time, which can break this script or cause unexpected behavior (including rate limits or temporary bans).
+- **Account Security.** Keep your `config.json` secure. 
+- **Privacy.** Logs may include media titles, IDs, and timestamps. Store logs responsibly and redact sensitive details before sharing.
+- **Terms of Service.** You are responsible for ensuring your usage complies with **Plex** and **SIMKL** Terms of Service and any applicable laws in your jurisdiction.
+- **Liability.** The authors/contributors are **not liable** for any direct, indirect, incidental, or consequential damages resulting from use or misuse of this software.
+- **Support.** Best-effort only. Open issues or pull requests in the repository if you encounter problems.
+
+By using this software, you acknowledge that you have read and agree to the above.

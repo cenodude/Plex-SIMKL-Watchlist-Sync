@@ -217,10 +217,11 @@ Typical flows:
 --sync                         Run synchronization using config.json
 --init-simkl redirect          Start local redirect helper for SIMKL OAuth
 --bind HOST:PORT               Bind address for redirect helper (default 0.0.0.0:8787)
---open                         Try to open the SIMKL auth URL locally 
---plex-account-token TOKEN     Override Plex token from config.json once
+--open                         Try to open the SIMKL auth URL on this device
+--plex-account-token TOKEN     Override Plex token from config.json for this run
 --debug                        Verbose logging
 --version                      Print script and plexapi versions
+--reset-state                  Delete state.json (next --sync will re-seed safely)
 ```
 
 ---
@@ -252,33 +253,86 @@ Typical flows:
 
 ---
 
-## 🛠️ Troubleshooting
+# 🛠️ Troubleshooting
 
-### `plexapi` not installed or too old
-- Error mentions plexapi or an unsupported call. Fix by upgrading in the **same** Python environment:
-  ```bash
-  pip install -U plexapi
-  ```
+## Out-of-sync or repeated `NOT EQUAL`
+If a run fails partway or the two lists drift (e.g., you see `Post-sync: Plex=X vs SIMKL=Y → NOT EQUAL` on repeats), do a safe reset + one-time mirror, then return to two-way:
 
-### Plex watchlist 404 via `plexapi`
+**1) Reset local snapshot**
+```bash
+./plex_simkl_watchlist_sync.py --reset-state
+```
+This removes `state.json` so the next run reseeds cleanly.
+
+**2) Temporarily switch to MIRROR mode**  
+Open `config.json` and set the sync block like this (pick *one* source of truth):
+```json
+"sync": {
+  "enable_add": true,
+  "enable_remove": true,
+  "bidirectional": {
+    "enabled": true,
+    "mode": "mirror",
+    "source_of_truth": "plex"   // or "simkl"
+  },
+  "activity": {
+    "use_activity": true
+  }
+}
+```
+- `"plex"` = make **SIMKL match Plex** (adds/removes on SIMKL).
+- `"simkl"` = make **Plex match SIMKL** (adds/removes on Plex).
+
+> ⚠️ Mirror is **destructive** on the target side (it will remove extras). Choose the direction carefully.
+
+**3) Run a one-time mirror**
+```bash
+./plex_simkl_watchlist_sync.py --sync --debug
+```
+Confirm the final line shows `→ EQUAL`.
+
+**4) Switch back to two-way**
+Edit `config.json` again:
+```json
+"bidirectional": {
+  "enabled": true,
+  "mode": "two-way",
+  "source_of_truth": "plex"
+}
+```
+Then run:
+```bash
+./plex_simkl_watchlist_sync.py --sync
+```
+This saves a fresh snapshot (`state.json`) once counts match.
+
+---
+
+## `plexapi` not installed or too old
+Error mentions plexapi or an unsupported call. Fix by upgrading in the **same** Python environment:
+```bash
+pip install -U plexapi
+```
+
+## Plex watchlist 404 via `plexapi`
 - You may see errors like “Section 'watchlist' not found!”.
 - The script will **automatically fall back** to **Plex Discover HTTP** *for reading only*.
 - **Writes to Plex still require `plexapi`**. If add/remove fails, upgrade `plexapi`.
 
-### Plex add/remove fails (400/404)
-- Usually a sign `plexapi` needs an update for the latest Plex Discover endpoints.
-- Upgrade:
-  ```bash
-  pip install -U plexapi
-  ```
+## Plex add/remove fails (400/404)
+Usually a sign `plexapi` needs an update for the latest Plex Discover endpoints. Upgrade:
+```bash
+pip install -U plexapi
+```
 
-### SIMKL 401/403
-- Your SIMKL access token may be expired or the client credentials are wrong.
+## SIMKL 401/403
+Your SIMKL access token may be expired or the client credentials are wrong.
 - Re-run the OAuth helper and ensure the **redirect URI** in SIMKL matches the one printed by the script.
 
-### Redirect helper unreachable
+## Redirect helper unreachable
 - Ensure any container/VM port mappings allow inbound to the chosen port (default `8787`).
 - If binding `0.0.0.0`, the helper prints a URL you can open from another device on the network.
+
 
 ---
 

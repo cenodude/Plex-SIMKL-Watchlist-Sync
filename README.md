@@ -42,10 +42,41 @@ You can run **Plex ⇄ SIMKL Watchlist Sync** in two ways:
 
 Pull and run:
 
+### Pull the image
 ```bash
 docker pull ghcr.io/cenodude/plex-simkl-sync:latest
-docker run -d --name pss   -p 8787:8787 \ 
-  -v "$PWD/config:/config"   ghcr.io/cenodude/plex-simkl-sync:latest
+```
+### Run the container
+```bash
+docker run -d --name pss \
+  -p 8787:8787 \
+  -v "$PWD/config:/config" \
+  -e TZ="Europe/Amsterdam" \
+  -e PLEX_ACCOUNT_TOKEN="" \
+  -e SIMKL_CLIENT_ID="" \
+  -e SIMKL_CLIENT_SECRET="" \
+  ghcr.io/cenodude/plex-simkl-sync:latest
+```
+Or use Docker-Compose
+### docker-compose.yml
+
+```yaml
+version: "3.8"
+
+services:
+  pss:
+    image: ghcr.io/cenodude/plex-simkl-sync:latest
+    container_name: pss
+    environment:
+      TZ: Europe/Amsterdam
+      PLEX_ACCOUNT_TOKEN: ""   # your Plex token (leave empty if not using ENV)
+      SIMKL_CLIENT_ID: ""      # your SIMKL client_id (leave empty if not using ENV)
+      SIMKL_CLIENT_SECRET: ""  # your SIMKL client_secret (leave empty if not using ENV)
+    volumes:
+      - ./config:/config
+    ports:
+      - "8787:8787"             # only needed on first run for OAuth
+    restart: unless-stopped
 ```
 
 #### First-time setup

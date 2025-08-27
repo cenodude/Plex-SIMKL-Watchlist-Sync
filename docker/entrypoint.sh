@@ -25,33 +25,38 @@ getent group "${PGID}" >/dev/null 2>&1 || groupadd -g "${PGID}" appgroup || true
 id -u "${PUID}"    >/dev/null 2>&1 || useradd -u "${PUID}" -g "${PGID}" -M -s /usr/sbin/nologin appuser || true
 chown -R "${PUID}:${PGID}" "$RUNTIME_DIR" /var/log/cron.log
 
-# --- AUTO-BOOTSTRAP CONFIG ---
-# If /config/config.json is missing, seed it from /app/config.example.json
-if [ ! -f "$RUNTIME_DIR/config.json" ]; then
-  if [ -f "/app/config.example.json" ]; then
-    cp /app/config.example.json "$RUNTIME_DIR/config.json"
-    chown "${PUID}:${PGID}" "$RUNTIME_DIR/config.json"
-    log "[ENTRYPOINT] Created $RUNTIME_DIR/config.json from template"
-  else
-    log "[ENTRYPOINT] WARNING: /app/config.example.json not found; cannot auto-create config.json"
-  fi
+# --- CONFIG BOOTSTRAP ---
+# If /config/config.json is missing, copy example
+if [ ! -f "$RUNTIME_DIR/config.json" ] && [ -f "/app/config.example.json" ]; then
+  cp /app/config.example.json "$RUNTIME_DIR/config.json"
+  chown "${PUID}:${PGID}" "$RUNTIME_DIR/config.json"
+  log "[ENTRYPOINT] Created $RUNTIME_DIR/config.json from template"
 fi
 
-# Ensure the app sees config.json at /app/config.json (symlink)
+# Symlink into /app for the script
 if [ -f "$RUNTIME_DIR/config.json" ] && [ ! -e "/app/config.json" ]; then
   ln -s "$RUNTIME_DIR/config.json" /app/config.json
   log "[ENTRYPOINT] Linked $RUNTIME_DIR/config.json -> /app/config.json"
 fi
-# --- END AUTO-BOOTSTRAP ---
 
-# First-run: 
-if [ ! -f "$RUNTIME_DIR/config.json" ]; then
-  log "[INIT] No config.json in ${RUNTIME_DIR}"
+# --- FIRST-RUN / OAUTH CHECK ---
+HAS_TOKEN="$(python - <<'PY'
+import json,sys
+try:
+    cfg=json.load(open('/app/config.json'))
+    sys.exit(0 if cfg.get("simkl",{}).get("access_token") else 1)
+except Exception:
+    sys.exit(1)
+PY
+)" || true
+
+if [ "$HAS_TOKEN" != "0" ]; then
+  log "[INIT] No SIMKL access_token; starting OAuth flow"
   log "[INIT] Map port 8787 on first run (-p 8787:8787)"
-  log "[INIT] Starting SIMKL OAuth..."
   cd "$RUNTIME_DIR"
   exec gosu appuser sh -lc "${INIT_CMD} && echo '[INIT] Done. Restart container to start normal syncs.'"
 fi
+# --- END FIRST-RUN / OAUTH CHECK ---
 
 # Run-once mode
 if [ -z "${CRON_SCHEDULE}" ]; then

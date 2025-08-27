@@ -22,14 +22,27 @@ fi
 
 # User/group
 getent group "${PGID}" >/dev/null 2>&1 || groupadd -g "${PGID}" appgroup || true
-id -u "${PUID}" >/dev/null 2>&1 || useradd -u "${PUID}" -g "${PGID}" -M -s /usr/sbin/nologin appuser || true
+id -u "${PUID}"    >/dev/null 2>&1 || useradd -u "${PUID}" -g "${PGID}" -M -s /usr/sbin/nologin appuser || true
 chown -R "${PUID}:${PGID}" "$RUNTIME_DIR" /var/log/cron.log
 
-# Link config.json from RUNTIME_DIR to /app if present
+# --- AUTO-BOOTSTRAP CONFIG ---
+# If /config/config.json is missing, seed it from /app/config.example.json
+if [ ! -f "$RUNTIME_DIR/config.json" ]; then
+  if [ -f "/app/config.example.json" ]; then
+    cp /app/config.example.json "$RUNTIME_DIR/config.json"
+    chown "${PUID}:${PGID}" "$RUNTIME_DIR/config.json"
+    log "[ENTRYPOINT] Created $RUNTIME_DIR/config.json from template"
+  else
+    log "[ENTRYPOINT] WARNING: /app/config.example.json not found; cannot auto-create config.json"
+  fi
+fi
+
+# Ensure the app sees config.json at /app/config.json (symlink)
 if [ -f "$RUNTIME_DIR/config.json" ] && [ ! -e "/app/config.json" ]; then
   ln -s "$RUNTIME_DIR/config.json" /app/config.json
   log "[ENTRYPOINT] Linked $RUNTIME_DIR/config.json -> /app/config.json"
 fi
+# --- END AUTO-BOOTSTRAP ---
 
 # First-run: no config.yml → run OAuth init
 if [ ! -f "$RUNTIME_DIR/config.yml" ]; then
@@ -39,25 +52,6 @@ if [ ! -f "$RUNTIME_DIR/config.yml" ]; then
   cd "$RUNTIME_DIR"
   exec gosu appuser sh -lc "${INIT_CMD} && echo '[INIT] Done. Restart container to start normal syncs.'"
 fi
-
-# Helper to run one sync (with simple overlap lock)
-cat >/usr/local/bin/run-sync.sh <<'EOS'
-#!/usr/bin/env bash
-set -euo pipefail
-log(){ echo "[$(date -Iseconds)] $*"; }
-: "${RUNTIME_DIR:=/config}"
-: "${SYNC_CMD:=python /app/plex_simkl_watchlist_sync.py --sync}"
-: "${PATH:=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin}"
-mkdir -p "$RUNTIME_DIR"
-LOCKDIR="$RUNTIME_DIR/.sync.lock"
-if mkdir "$LOCKDIR" 2>/dev/null; then trap 'rmdir "$LOCKDIR"' EXIT INT TERM; else log "[SKIP] another run in progress"; exit 0; fi
-log "[RUN] cd $RUNTIME_DIR && ${SYNC_CMD}"
-cd "$RUNTIME_DIR"
-sh -c "${SYNC_CMD}"
-log "[RUN] done."
-EOS
-chmod +x /usr/local/bin/run-sync.sh
-chown "${PUID}:${PGID}" /usr/local/bin/run-sync.sh
 
 # Run-once mode
 if [ -z "${CRON_SCHEDULE}" ]; then

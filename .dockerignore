@@ -1,0 +1,11 @@
+# Ignore Git and editor files
+.git
+.gitignore
+.vscode
+__pycache__/
+*.pyc
+
+# Ignore local configs/logs
+config/
+logs/
+*.log

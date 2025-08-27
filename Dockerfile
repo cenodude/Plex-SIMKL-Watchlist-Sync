@@ -26,7 +26,7 @@ ENV TZ="Europe/Amsterdam" \
     PUID="1000" \
     PGID="1000" \
     SYNC_CMD="python /app/plex_simkl_watchlist_sync.py --sync" \
-    INIT_CMD="python /app/plex_simkl_watchlist_sync.py --init-simkl redirect --bind 0.0.0.0:8787 --open"
+    INIT_CMD="python /app/plex_simkl_watchlist_sync.py --init-simkl redirect --bind 0.0.0.0:8787"
 
 # first-run OAuth needs this
 EXPOSE 8787

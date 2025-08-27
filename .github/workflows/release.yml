@@ -41,6 +41,7 @@ jobs:
           ls -l \
             config.example.json \
             plex_simkl_watchlist_sync.py \
+            plex_token_helper.py \
             README.md
 
       - name: Create ZIP artifact

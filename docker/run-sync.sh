@@ -1,16 +1,26 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# tiny logger
-log() {
-  echo "[$(date -Iseconds)] $*"
-}
+log(){ echo "[$(date -Iseconds)] $*"; }
 
-RUNTIME_DIR="${RUNTIME_DIR:-/config}"
+# Defaults (cron-safe)
+: "${RUNTIME_DIR:=/config}"
+: "${SYNC_CMD:=python /app/plex_simkl_watchlist_sync.py --sync}"
+: "${PATH:=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin}"
+
 mkdir -p "$RUNTIME_DIR"
+
+# Simple lock to prevent overlapping 
+LOCKDIR="$RUNTIME_DIR/.sync.lock"
+if mkdir "$LOCKDIR" 2>/dev/null; then
+  trap 'rmdir "$LOCKDIR"' EXIT INT TERM
+else
+  log "[SKIP] another run is in progress (lock: $LOCKDIR)"
+  exit 0
+fi
 
 log "[RUN] cd $RUNTIME_DIR && ${SYNC_CMD}"
 cd "$RUNTIME_DIR"
+# Use sh -c to allow complex SYNC_CMD strings
 sh -c "${SYNC_CMD}"
 log "[RUN] done."
-

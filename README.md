@@ -5,14 +5,9 @@ This tool compares both lists and applies additions/removals so they end up in s
 
 ---
 
-
-
 ## ✅ Features
 
 - **Two-way sync** between Plex and SIMKL.
-- **Plex writes use `plexapi` ** (add/remove)
-- **Read fallback for Plex**: If `plexapi` cannot read your Plex Watchlist (example: temporary upstream change),
-  the script **falls back to Plex Discover HTTP** for *read-only* watchlist fetching. Writes still use `plexapi`.
 - **Clear modes**:
   - **`two-way` (default)** — symmetric sync.  
     - **First run:** *adds only* (seeds a local snapshot to avoid accidental deletes).  
@@ -24,15 +19,14 @@ This tool compares both lists and applies additions/removals so they end up in s
 
 ## 🧩 How it works
 
-1. Read Plex Watchlist (via `plexapi`, or Discover HTTP as a **read-only** fallback) and SIMKL PTW.
+1. Read Plex Watchlist 
 2. Build ID sets (IMDB/TMDB/TVDB/slug when available) for stable matching across both services.
-3. Compute differences.
+3. Compute differences with SIMKL
 4. Apply changes based on your configured mode:
    - **two-way (first run):** add-only on both sides, snapshot saved to `state.json`.
    - **two-way (later runs):** add/remove in both directions using the snapshot to detect deltas.
    - **mirror(plex):** make SIMKL exactly match Plex (add to SIMKL, remove from SIMKL).
    - **mirror(simkl):** make Plex exactly match SIMKL (add/remove in Plex via `plexapi`).
-
 
 ## 🚀 Getting Started
 
@@ -42,10 +36,41 @@ You can run **Plex ⇄ SIMKL Watchlist Sync** in two ways:
 
 Pull and run:
 
+### Pull the image
 ```bash
-docker pull ghcr.io/cenodude/plex-simkl-sync:latest
-docker run -d --name pss   -p 8787:8787 \ 
-  -v "$PWD/config:/config"   ghcr.io/cenodude/plex-simkl-sync:latest
+docker pull ghcr.io/cenodude/plex-simkl-watchlist-sync:latest
+```
+### Run the container
+```bash
+docker run -d --name pss \
+  -p 8787:8787 \
+  -v "$PWD/config:/config" \
+  -e TZ="Europe/Amsterdam" \
+  -e PLEX_ACCOUNT_TOKEN="" \
+  -e SIMKL_CLIENT_ID="" \
+  -e SIMKL_CLIENT_SECRET="" \
+  ghcr.io/cenodude/plex-simkl-watchlist-sync:latest
+```
+Or use Docker-Compose
+### docker-compose.yml
+
+```yaml
+version: "3.8"
+
+services:
+  pss:
+    image: ghcr.io/cenodude/plex-simkl-watchlist-sync:latest
+    container_name: plex-simkl-sync
+    environment:
+      TZ: Europe/Amsterdam
+      PLEX_ACCOUNT_TOKEN: ""   # your Plex token (leave empty if not using ENV)
+      SIMKL_CLIENT_ID: ""      # your SIMKL client_id (leave empty if not using ENV)
+      SIMKL_CLIENT_SECRET: ""  # your SIMKL client_secret (leave empty if not using ENV)
+    volumes:
+      - ./config:/config
+    ports:
+      - "8787:8787"             # only needed on first run for OAuth
+    restart: unless-stopped
 ```
 
 #### First-time setup
@@ -62,11 +87,10 @@ docker run -d --name pss   -p 8787:8787 \
 - Restart the container again for normal hourly sync.  
 
 #### Notes
-- Default sync runs hourly. Change with:
+- Default sync runs every 24 hours. Change with:
   ```bash
   -e CRON_SCHEDULE="*/15 * * * *"
   ```
-
 ---
 
 ### Option B — Manual Python

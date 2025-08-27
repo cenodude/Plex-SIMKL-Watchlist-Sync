@@ -62,11 +62,10 @@ docker run -d --name pss   -p 8787:8787 \
 - Restart the container again for normal hourly sync.  
 
 #### Notes
-- Default sync runs hourly. Change with:
+- Default sync runs every 24 hours. Change with:
   ```bash
   -e CRON_SCHEDULE="*/15 * * * *"
   ```
-
 ---
 
 ### Option B — Manual Python

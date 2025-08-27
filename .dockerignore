@@ -9,3 +9,8 @@ __pycache__/
 config/
 logs/
 *.log
+Plex-SIMKL.jpg
+README.md
+LICENSE
+docker/
+config;C/

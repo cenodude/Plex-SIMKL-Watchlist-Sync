@@ -7,7 +7,8 @@ RUN apt-get update \
  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
-COPY . /app
+COPY plex_simkl_watchlist_sync.py /app/
+COPY config.example.json /app/
 
 # python deps
 RUN pip install --no-cache-dir --upgrade pip \

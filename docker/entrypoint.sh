@@ -37,6 +37,16 @@ fi
 ln -sf "$RUNTIME_DIR/config.json" /app/config.json
 log "[ENTRYPOINT] Linked $RUNTIME_DIR/config.json -> /app/config.json"
 
+# --- STATE FILE BOOTSTRAP ---
+if [ ! -f "$RUNTIME_DIR/state.json" ]; then
+  touch "$RUNTIME_DIR/state.json"
+  chown "${PUID}:${PGID}" "$RUNTIME_DIR/state.json"
+  log "[ENTRYPOINT] Created empty $RUNTIME_DIR/state.json"
+fi
+
+ln -sf "$RUNTIME_DIR/state.json" /app/state.json
+log "[ENTRYPOINT] Linked $RUNTIME_DIR/state.json -> /app/state.json"
+
 # --- FIRST-RUN / OAUTH CHECK ---
 if python - <<'PY'
 import json,sys

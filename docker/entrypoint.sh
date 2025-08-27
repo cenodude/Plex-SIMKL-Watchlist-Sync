@@ -44,9 +44,9 @@ if [ -f "$RUNTIME_DIR/config.json" ] && [ ! -e "/app/config.json" ]; then
 fi
 # --- END AUTO-BOOTSTRAP ---
 
-# First-run: no config.yml → run OAuth init
-if [ ! -f "$RUNTIME_DIR/config.yml" ]; then
-  log "[INIT] No config.yml in ${RUNTIME_DIR}"
+# First-run: 
+if [ ! -f "$RUNTIME_DIR/config.json" ]; then
+  log "[INIT] No config.json in ${RUNTIME_DIR}"
   log "[INIT] Map port 8787 on first run (-p 8787:8787)"
   log "[INIT] Starting SIMKL OAuth..."
   cd "$RUNTIME_DIR"

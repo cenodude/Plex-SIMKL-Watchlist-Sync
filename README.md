@@ -191,13 +191,25 @@ A starter file is created on first run:
 
 ## 🎟 Getting a Plex account token
 
-1. Open **https://app.plex.tv** and sign in.
-2. Open your browser **Developer Tools → Network** tab.
-3. Refresh the page and click any request to `app.plex.tv` / API endpoints.
-4. Look for the query/header **`X-Plex-Token`** — copy its value.
-5. Paste it into `config.json` → `plex.account_token`.
+This project requires a Plex account token (`plex.account_token`) stored in `config.json`.  
+A helper script is included to make this simple: **`plex_token_helper.py`**.
 
-> If you rotate sessions or sign out, your token may change; update `config.json` accordingly.
+Run:
+
+```bash
+python plex_token_helper.py --fetch
+```
+
+What happens:
+
+- The helper detects whether you are running **inside a container** or **on your host**:
+  - **Container** → saves token into `/config/config.json`
+  - **Host** → saves token into `./config.json`
+- It will print a short **PIN code** and a link to `https://plex.tv/link`
+- On **any device with a browser** (PC, phone, tablet), open that link and enter the PIN
+- The script polls automatically until the link is completed
+- Each PIN is valid for ~15 minutes. If one expires, the helper automatically requests a new code (up to 3 tries)
+- Once successful, your `config.json` will be created/updated with:
 
 ---
 

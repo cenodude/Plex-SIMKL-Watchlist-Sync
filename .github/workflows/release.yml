@@ -12,7 +12,7 @@ on:
         default: ""
 
 permissions:
-  contents: write
+  contents: write   # needed for creating/uploading releases
 
 jobs:
   build-zip:
@@ -31,9 +31,9 @@ jobs:
           if [[ -n "${{ github.event.inputs.tag }}" ]]; then
             TAG="${{ github.event.inputs.tag }}"
           else
-            TAG="${GITHUB_REF_NAME}"   # e.g. v0.3.6 on tag push
+            TAG="${GITHUB_REF_NAME}"   # e.g. v0.3.7 when pushing a tag
           fi
-          ZIP_NAME="Plex-SIMKL-Watchlist-Sync ${TAG}.zip"
+          ZIP_NAME="Plex ⇄ SIMKL ${TAG}.zip"
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
           echo "zipname=${ZIP_NAME}" >> "$GITHUB_OUTPUT"
 
@@ -60,19 +60,20 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p dist
-          # -j = junk paths (no directories inside zip)
+          # -j = junk paths (flat zip, no directories)
           zip -9 -j "dist/${{ steps.v.outputs.zipname }}" \
             config.example.json \
             plex_simkl_watchlist_sync.py \
             plex_token_helper.py \
             README.md
-          # optional: checksum next to the zip
+          # optional checksum
           (cd dist && sha256sum "${{ steps.v.outputs.zipname }}" > "${{ steps.v.outputs.zipname }}.sha256")
 
       - name: Create/Update GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.v.outputs.tag }}
+          name: Plex ⇄ SIMKL ${{ steps.v.outputs.tag }}
           files: |
             dist/${{ steps.v.outputs.zipname }}
             dist/${{ steps.v.outputs.zipname }}.sha256

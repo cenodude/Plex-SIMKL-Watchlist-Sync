@@ -33,24 +33,23 @@ if [ ! -f "$RUNTIME_DIR/config.json" ] && [ -f "/app/config.example.json" ]; the
   log "[ENTRYPOINT] Created $RUNTIME_DIR/config.json from template"
 fi
 
-# Symlink into /app for the script
-if [ -f "$RUNTIME_DIR/config.json" ] && [ ! -e "/app/config.json" ]; then
-  ln -s "$RUNTIME_DIR/config.json" /app/config.json
-  log "[ENTRYPOINT] Linked $RUNTIME_DIR/config.json -> /app/config.json"
-fi
+# Always symlink into /app for the script
+ln -sf "$RUNTIME_DIR/config.json" /app/config.json
+log "[ENTRYPOINT] Linked $RUNTIME_DIR/config.json -> /app/config.json"
 
 # --- FIRST-RUN / OAUTH CHECK ---
-HAS_TOKEN="$(python - <<'PY'
+if python - <<'PY'
 import json,sys
 try:
     cfg=json.load(open('/app/config.json'))
-    sys.exit(0 if cfg.get("simkl",{}).get("access_token") else 1)
+    tok=cfg.get("simkl",{}).get("access_token")
+    sys.exit(0 if tok else 1)
 except Exception:
     sys.exit(1)
 PY
-)" || true
-
-if [ "$HAS_TOKEN" != "0" ]; then
+then
+  log "[ENTRYPOINT] SIMKL access_token found → continue normal run"
+else
   log "[INIT] No SIMKL access_token; starting OAuth flow"
   log "[INIT] Map port 8787 on first run (-p 8787:8787)"
   cd "$RUNTIME_DIR"

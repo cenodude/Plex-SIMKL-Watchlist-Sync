@@ -1,42 +1,37 @@
 #!/usr/bin/env python3
 
 """
-Plex ⇄ SIMKL Watchlist Sync (v0.2)
-==================================
+Plex ⇄ SIMKL Watchlist Sync
 
-Keep your Plex Watchlist and SIMKL “Plan to Watch” list in sync. This tool adds and removes items so both services stay aligned.
+Keep your Plex Watchlist and SIMKL “Plan to Watch” list in sync.
 
 Sync modes
 ----------
-- Mirror: Makes one side exactly match the other (adds + deletions) based on a chosen source of truth.
-- Two-way:
-  • First run: creates a local snapshot (`state.json`) and performs *adds only* (no deletions) to avoid accidental data loss.
-  • Subsequent runs: compares current lists to the snapshot and propagates both *adds and deletions* in both directions.
+- Two-way (default):
+  • First run: safe seeding (adds only, no deletions).
+  • Subsequent runs: full delta (adds + deletions) in both directions.
+- Mirror:
+  Make one side exactly match the other (choose Plex or SIMKL as the source of truth).
 
-SIMKL sign-in (OAuth)
----------------------
-Run headless-mode:
-  --init-simkl redirect --bind <HOST>:8787
-
-Run on your own device with browser:
-  --init-simkl redirect --bind <HOST>:8787 --open
-
-Notes:
-- `<HOST>` must be an address/hostname reachable by your browser (e.g., the server or container IP when using headless-mode).
-- Add the exact callback URL `http://<HOST>:8787/callback` to your SIMKL app’s Redirect URIs.
-- The command starts a tiny local web server to receive the SIMKL OAuth redirect. Open the printed authorization link and the script will store tokens in `config.json`.
+SIMKL OAuth setup
+-----------------
+1. Put your SIMKL client_id and client_secret into config.json.
+2. Run the helper:
+     ./plex_simkl_watchlist_sync.py --init-simkl redirect --bind 0.0.0.0:8787
+3. Add the shown callback URL to your SIMKL app Redirect URIs.
+4. Open the printed authorization URL and complete login.
+   Tokens will be stored in config.json.
 
 Requirements
 ------------
-- Python 3.10+ (type annotations use modern syntax).
-- `requests` and `plexapi` installed in the same Python environment. Requires plexapi 4.17.1+.
-- A `config.json` next to the script (a starter file is created on first run).
+- Python 3.10+
+- Packages: requests, plexapi (4.17.1+)
+- config.json and state.json stored next to the script (or in /config when containerized).
 
 Disclaimer
 ----------
-This tool is community-made and not affiliated with Plex or SIMKL.
-Use at your own risk. Always keep backups of your Plex and SIMKL data.
-I am not responsible for API changes, data loss, or account issues.
+This is a community project, not affiliated with Plex or SIMKL.
+Use at your own risk. Keep backups of your lists.
 
 GitHub: https://github.com/cenodude/Plex-SIMKL-Watchlist-Sync
 """
@@ -50,11 +45,34 @@ import sys
 import urllib.parse
 import webbrowser
 import secrets
+import datetime, builtins
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from typing import Any, Sequence, Tuple, List, Dict, Set, Optional, NoReturn, cast
 
-__VERSION__ = "0.2"
+__VERSION__ = "0.3"
+
+# --- timestamped & colored print ---
+ANSI_DIM    = "\033[90m"  # grey
+ANSI_BLUE   = "\033[94m"  # blue
+ANSI_YELLOW = "\033[33m"  # yellow/orange
+ANSI_RESET  = "\033[0m"   # reset (local to logger)
+
+def log_print(*args, **kwargs):
+    ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    prefix = f"{ANSI_DIM}[{ts}]{ANSI_RESET}"
+    new_args = []
+    for a in args:
+        if isinstance(a, str):
+            a = (a.replace("[i]",     f"{ANSI_BLUE}[i]{ANSI_RESET}")
+                   .replace("[debug]", f"{ANSI_YELLOW}[debug]{ANSI_RESET}")
+                   .replace("[✓]",    f"\033[92m[✓]{ANSI_RESET}")
+                   .replace("[!]",    f"\033[91m[!]{ANSI_RESET}"))
+        new_args.append(a)
+    builtins.print(prefix, *new_args, flush=True, **kwargs)
+
+print = log_print
+# -----------------------------------
 
 # Paths / constants
 HERE = Path(__file__).resolve().parent
@@ -152,7 +170,12 @@ def clear_state(path: Path) -> None:
         pass
 
 def print_banner() -> None:
-    print(f"\nPlex ⇄ SIMKL Watchlist Sync Version {__VERSION__}")
+    # Use builtins.print to avoid the timestamp wrapper
+    builtins.print("")
+    builtins.print(
+        f"{ANSI_G}Plex{ANSI_X} ⇄ {ANSI_R}SIMKL{ANSI_X} Watchlist Sync "
+        f"{ANSI_G}Version {__VERSION__}{ANSI_X}"
+    )
 
 # --------------------------- SIMKL API ---------------------------------------
 SIMKL_BASE = "https://api.simkl.com"
@@ -266,13 +289,6 @@ def combine_ids(ids: dict) -> dict:
     for k in ("imdb", "tmdb", "tvdb", "slug", "title", "year"):
         if k in ids and ids[k] is not None:
             out[k] = ids[k]
-    return out
-
-def idset_from_ids(ids: dict) -> Set[Tuple[str, str]]:
-    out: Set[Tuple[str, str]] = set()
-    for k in ("imdb", "tmdb", "tvdb", "slug"):
-        if k in ids and ids[k] is not None:
-            out.add((k, str(ids[k])))
     return out
 
 def canonical_identity(ids: dict) -> Optional[Tuple[str, str]]:
@@ -774,6 +790,33 @@ def plex_remove_by_ids(acct: MyPlexAccount, ids: dict, libtype: str, debug: bool
         return False
 
 # --------------------------- Sync helpers ------------------------------------
+def _current_counts(acct, plex_token: str, simkl_cfg: dict, debug: bool=False) -> Tuple[int,int]:
+    plex_after = plex_fetch_watchlist_items(acct, plex_token, debug=debug)
+    try:
+        shows, movies = simkl_get_ptw_full(simkl_cfg, debug=debug)
+        simkl_n = len(shows) + len(movies)
+    except Exception:
+        # Fallback to 0 if SIMKL fetch fails temporarily
+        simkl_n = 0
+    return len(plex_after), simkl_n
+
+def wait_for_eventual_consistency(acct, plex_token: str, simkl_cfg: dict,
+                                  tries: int = 3, delay: float = 2.0, debug: bool=False) -> Tuple[bool,int,int]:
+    """
+    Poll a few times to let SIMKL/Plex catch up after writes.
+    Returns (equal, plex_count, simkl_count).
+    """
+    last_p = last_s = 0
+    for i in range(tries):
+        p, s = _current_counts(acct, plex_token, simkl_cfg, debug=debug)
+        last_p, last_s = p, s
+        if p == s:
+            return True, p, s
+        if debug:
+            print(f"[debug] counts not equal yet (plex={p} simkl={s}); retry {i+1}/{tries} in {delay}s...")
+        time.sleep(delay)
+    return False, last_p, last_s
+
 def neutral_precheck_msg(plex_total: int, simkl_total: int) -> None:
     if plex_total == simkl_total:
         print(f"[i] Pre-sync counts: Plex={plex_total} vs SIMKL={simkl_total} (equal)")
@@ -800,20 +843,23 @@ def snapshot_for_state(plex_idx: Dict[str, dict], simkl_idx: Dict[str, dict], la
     return {"plex": {"items": plex_idx}, "simkl": {"items": simkl_idx, "last_activities": last_activities}}
 
 # --------------------------- CLI / Main --------------------------------------
-def build_parser() -> argparse.ArgumentParser:
-    epilog = """examples:
-  Initialize SIMKL tokens-headless mode:
+def build_parser(include_examples: bool = False) -> argparse.ArgumentParser:
+    epilog_examples = """Examples
+
+  Initialize SIMKL tokens (headless):
     ./plex_simkl_watchlist_sync.py --init-simkl redirect --bind 0.0.0.0:8787
 
-  Initialize SIMKL tokens-browser mode (opens the browser on your device)
+  Initialize SIMKL tokens and open a browser:
     ./plex_simkl_watchlist_sync.py --init-simkl redirect --bind 0.0.0.0:8787 --open
 
-  Reset local state:
-    ./plex_simkl_watchlist_sync.py --reset-state
-
-  Run synchronization:
+  Run a sync (two-way by default):
     ./plex_simkl_watchlist_sync.py --sync
+
+  Run with debug logging:
+    ./plex_simkl_watchlist_sync.py --sync --debug
 """
+    epilog = epilog_examples if include_examples else None
+
     ap = argparse.ArgumentParser(
         prog="plex_simkl_watchlist_sync.py",
         description="Sync Plex Watchlist with SIMKL.",
@@ -825,8 +871,8 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--bind", default="0.0.0.0:8787", help="Bind host:port for redirect helper (default 0.0.0.0:8787)")
     ap.add_argument("--open", action="store_true", help="With --init-simkl redirect, also open the auth URL")
     ap.add_argument("--plex-account-token", help="Override Plex token for this run")
-    ap.add_argument("--debug", action="store_true", help="Verbose logging")
-    ap.add_argument("--version", action="store_true", help="Print versions")
+    ap.add_argument("--debug", action="store_true", help="Enable verbose logging")
+    ap.add_argument("--version", action="store_true", help="Print version info and exit")
     ap.add_argument("--reset-state", action="store_true", help="Delete state.json (next run will re-seed)")
     return ap
 
@@ -907,16 +953,21 @@ class _RedirectHandler(BaseHTTPRequestHandler):
             return self._html(f"<h3>Unexpected error</h3><pre>{e}</pre>", 500)
 
 def simkl_oauth_redirect(cfg_path: Path, bind_host: str="0.0.0.0", bind_port: int=8787, open_browser: bool=False, debug: bool=False) -> None:
+    import os, socket
+
     cfg = load_config_file(cfg_path)
     s = cfg.get("simkl") or {}
     if not s.get("client_id") or not s.get("client_secret"):
         raise SystemExit("[!] Please set simkl.client_id and simkl.client_secret in config.json first.")
 
+    # shown_host = friendly IP/host for printing (non-0.0.0.0 if we can detect)
     shown_host = detect_local_ip() if bind_host in ("0.0.0.0", "::") else bind_host
     redirect_uri = f"http://{shown_host}:{bind_port}/callback"
+
     state = secrets.token_urlsafe(16)
     auth_url = build_simkl_authorize_url(s["client_id"], redirect_uri, state=state)
 
+    # HTTP server that receives the SIMKL redirect
     srv = HTTPServer((bind_host, bind_port), _RedirectHandler)
     srv.simkl_cfg = s            # type: ignore[attr-defined]
     srv.cfg_path = cfg_path      # type: ignore[attr-defined]
@@ -925,9 +976,29 @@ def simkl_oauth_redirect(cfg_path: Path, bind_host: str="0.0.0.0", bind_port: in
     srv.debug = debug            # type: ignore[attr-defined]
 
     print("[i] Redirect helper is running")
-    print(f"    Callback URL: {redirect_uri}")
-    print("[i] Add this exact redirect URL in your SIMKL app settings.")
-    print("[i] Open this URL to authorize:")
+    print(f"    Bind: {bind_host}:{bind_port}")
+
+    # Detect if we’re inside a container (best-effort)
+    running_in_container = os.path.exists("/.dockerenv")
+
+    if running_in_container:
+        # Container-internal callback URL + host hint
+        try:
+            container_ip = socket.gethostbyname(socket.gethostname())
+        except Exception:
+            container_ip = shown_host
+        print("[i] Callback URL (container internal):")
+        print(f"    http://{container_ip}:{bind_port}/callback")
+        print(f"[i] If you published the port with -p {bind_port}:{bind_port}, open on your machine:")
+        print(f"    http://<docker-host-ip>:{bind_port}/callback")
+        print("[i] Add the exact URL you will use above to your SIMKL app Redirect URIs.")
+    else:
+        # Bare metal / no container
+        print(f"[i] Callback URL:")
+        print(f"    http://{shown_host}:{bind_port}/callback")
+        print("[i] Add this exact redirect URL in your SIMKL app settings.")
+
+    print("[i] Open this SIMKL authorization URL:")
     print(f"    {auth_url}")
 
     if open_browser:
@@ -938,21 +1009,30 @@ def simkl_oauth_redirect(cfg_path: Path, bind_host: str="0.0.0.0", bind_port: in
 
     print("[i] Waiting for SIMKL to redirect back with ?code=...")
     try:
-        srv.handle_request()  # one shot
+        srv.handle_request()  # one request, then stop
         print("[✓] Code handled; tokens saved if exchange succeeded.")
     except KeyboardInterrupt:
         print("\n[!] Redirect helper stopped.")
 
 # --------------------------- Main --------------------------------------------
 def main() -> None:
-    ap = build_parser()
-    if len(sys.argv) == 1:
+    # If user requested help, show help WITH examples
+    if any(h in sys.argv[1:] for h in ("-h", "--help")):
+        ap = build_parser(include_examples=True)
+        ap.print_help()
+        sys.exit(0)
+
+    # Normal parser (no examples in help)
+    ap = build_parser(include_examples=False)
+
+    # No args → show minimal help (no examples)
+    if not sys.argv[1:]:
         ap.print_help()
         return
+
     args = ap.parse_args()
 
     if args.version:
-        import plexapi
         print(f"Plex_SIMKL_Watchlist_Sync version: {__VERSION__}")
         print(f"plexapi version: {getattr(plexapi, '__version__', '?')}")
         return
@@ -1274,29 +1354,23 @@ def main() -> None:
                 print(ANSI_R + f"[!] SIMKL history/remove failed: HTTP {r.status_code} {r.text}" + ANSI_X)
                 any_failure = True
 
-    # Post-check and decide if we should persist state
-    plex_items_after = plex_fetch_watchlist_items(acct, plex_token, debug=debug)
-    simkl_total_after = len(simkl_idx)
-    if debug:
-        # Optional: verify SIMKL count by fetching current PTW lists
-        try:
-            shows_dbg, movies_dbg = simkl_get_ptw_full(simkl_cfg, debug=debug)
-            simkl_total_after = len(shows_dbg) + len(movies_dbg)
-        except Exception:
-            pass
+    # Post-check with short eventual-consistency window
+    equal_now, p_after, s_after = wait_for_eventual_consistency(
+        acct, plex_token, simkl_cfg, tries=3, delay=2.0, debug=debug
+    )
+    colored_postcheck(p_after, s_after)
 
-    equal_counts = (len(plex_items_after) == simkl_total_after)
-    colored_postcheck(len(plex_items_after), simkl_total_after)
-
-    # Save snapshot only if everything succeeded AND counts match
-    if any_failure or not equal_counts:
-        if debug and not equal_counts:
-            print("[debug] Skipping state save because counts differ after sync.")
-        print(ANSI_R + "[!] Some actions failed or counts differ; NOT saving state so we retry next run." + ANSI_X)
-    else:
+    # Save snapshot only if all actions succeeded AND counts match (after wait)
+    if any_failure:
+        print(ANSI_R + "[!] Some actions failed; NOT saving state." + ANSI_X)
+    elif equal_now:
         save_state(STATE_PATH, snapshot_for_state(plex_idx, simkl_idx, curr_acts or prev_acts or {}))
         if debug:
             print("[debug] State updated.")
+    else:
+        print("[i] Counts still differ after a short wait; likely eventual consistency. "
+            "Not saving state; will re-check next run.")
+
 
 if __name__ == "__main__":
     try:

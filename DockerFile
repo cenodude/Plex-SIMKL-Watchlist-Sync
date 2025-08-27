@@ -1,7 +1,7 @@
 # ./Dockerfile
 FROM python:3.12-slim
 
-# Install cron + timezone data + gosu (to drop privileges)
+# Install cron, timezone data, and gosu (to drop privileges)
 RUN apt-get update \
  && apt-get install -y --no-install-recommends cron tzdata gosu \
  && rm -rf /var/lib/apt/lists/*
@@ -10,7 +10,7 @@ RUN apt-get update \
 WORKDIR /app
 COPY . /app
 
-# Python dependencies
+# Install Python dependencies for your script
 RUN pip install --no-cache-dir --upgrade pip \
  && pip install --no-cache-dir plexapi requests
 
@@ -20,15 +20,15 @@ COPY docker/run-sync.sh   /usr/local/bin/run-sync.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/run-sync.sh \
  && touch /var/log/cron.log
 
-# Default environment variables
+# Default environment variables (override at runtime)
 ENV TZ="Europe/Amsterdam" \
     CRON_SCHEDULE="0 * * * *" \
-    SYNC_CMD="python /app/plex_simkl_watchlist_sync.py" \
+    SYNC_CMD="python /app/plex_simkl_watchlist_sync.py --sync" \
     RUNTIME_DIR="/config" \
     PUID="1000" \
     PGID="1000"
 
-# Mount point for config/state
+# Persist config/state
 VOLUME ["/config"]
 
 # Start via entrypoint; cron stays in foreground

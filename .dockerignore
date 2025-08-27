@@ -9,7 +9,7 @@ __pycache__/
 config/
 logs/
 *.log
-Plex-SIMKL.jpg
+images/
 README.md
 LICENSE
 config;C/

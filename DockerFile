@@ -1,7 +1,7 @@
 # ./Dockerfile
 FROM python:3.12-slim
 
-# Install cron, timezone data, and gosu (to drop privileges)
+# Install cron, timezone data, and gosu
 RUN apt-get update \
  && apt-get install -y --no-install-recommends cron tzdata gosu \
  && rm -rf /var/lib/apt/lists/*

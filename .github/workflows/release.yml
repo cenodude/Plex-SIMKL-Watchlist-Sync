@@ -4,9 +4,15 @@ on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to (re)publish"
+        required: false
+        default: ""
 
 permissions:
-  contents: write   # nodig om release assets te uploaden
+  contents: write   # nodig voor release aanmaken/uploaden
 
 jobs:
   build-zip:
@@ -14,24 +20,39 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - name: Resolve version from tag
+      - name: Resolve version/tag
         id: v
         run: |
-          TAG="${GITHUB_REF_NAME}"            # e.g. v0.3.6
-          NAME="Plex-SIMKL-Watchlist-Sync ${TAG}.zip"
-          echo "tag=${TAG}" >> $GITHUB_OUTPUT
-          echo "zipname=${NAME}" >> $GITHUB_OUTPUT
+          if [ -n "${{ github.event.inputs.tag }}" ]; then
+            TAG="${{ github.event.inputs.tag }}"
+          else
+            TAG="${GITHUB_REF_NAME}"   # bv. v0.3.6 bij push op tag
+          fi
+          # bestandnaam (spatie toegestaan)
+          ZIP_NAME="Plex-SIMKL-Watchlist-Sync ${TAG}.zip"
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "zipname=$ZIP_NAME" >> $GITHUB_OUTPUT
 
-      - name: Create release ZIP
+      - name: Verify files exist
+        run: |
+          ls -l \
+            config.example.json \
+            plex_simkl_watchlist_sync.py \
+            README.md
+
+      - name: Create ZIP artifact
         run: |
           mkdir -p dist
+          # -j = zonder mappaden in de zip
           zip -9 -j "dist/${{ steps.v.outputs.zipname }}" \
             config.example.json \
             plex_simkl_watchlist_sync.py \
             README.md
 
-      - name: Publish GitHub Release (create or update)
+      - name: Create/Update GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.v.outputs.tag }}

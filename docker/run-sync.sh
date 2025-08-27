@@ -11,18 +11,23 @@ log(){ echo "[$(date -Iseconds)] $*"; }
 mkdir -p "$RUNTIME_DIR"
 
 # --- TOKEN CHECK ---
-if ! python - <<'PY'
+MISSING="$(python - <<'PY'
 import json,sys
+missing=[]
 try:
-    cfg=json.load(open("/app/config.json"))
-    plex_ok = bool(cfg.get("plex",{}).get("account_token"))
-    simkl_ok = bool(cfg.get("simkl",{}).get("access_token"))
-    sys.exit(0 if (plex_ok and simkl_ok) else 1)
+    cfg=json.load(open('/app/config.json','r',encoding='utf-8'))
+    if not (cfg.get('plex',{}).get('account_token')):
+        missing.append('plex.account_token')
+    if not (cfg.get('simkl',{}).get('access_token')):
+        missing.append('simkl.access_token')
 except Exception:
-    sys.exit(1)
+    missing.append('config.json:unreadable')
+print(' '.join(missing))
 PY
-then
-  log "[SKIP] Missing Plex or SIMKL tokens → aborting sync"
+)"
+
+if [ -n "$MISSING" ]; then
+  log "[SKIP] Missing required fields: $MISSING → aborting sync"
   exit 0
 fi
 # --- END TOKEN CHECK ---

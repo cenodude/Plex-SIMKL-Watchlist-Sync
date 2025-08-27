@@ -23,13 +23,17 @@ RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/run-sync.sh \
 # runtime env (override at run time if needed)
 ENV TZ="Europe/Amsterdam" \
     RUNTIME_DIR="/config" \
-    CRON_SCHEDULE="0 * * * *" \
+    CRON_SCHEDULE="0 0 * * *" \
     PUID="1000" \
     PGID="1000" \
     SYNC_CMD="python /app/plex_simkl_watchlist_sync.py --sync" \
     INIT_CMD="python /app/plex_simkl_watchlist_sync.py --init-simkl redirect --bind 0.0.0.0:8787"
 
 # first-run OAuth needs this
+ENV PLEX_ACCOUNT_TOKEN="" \
+    SIMKL_CLIENT_ID="" \
+    SIMKL_CLIENT_SECRET=""
+
 EXPOSE 8787
 
 # persist config/state

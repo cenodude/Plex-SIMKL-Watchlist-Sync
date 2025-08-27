@@ -10,7 +10,6 @@ WORKDIR /app
 COPY plex_simkl_watchlist_sync.py /app/
 COPY config.example.json /app/
 COPY plex_token_helper.py /app/
-COPY README.md /app/
 
 # python deps
 RUN pip install --no-cache-dir --upgrade pip \

@@ -68,15 +68,15 @@ services:
 #### First-time setup
 1. After container starts, a `config.json` is created inside `./config/`.  
 2. **Edit `config.json`** and add:
-   - Your **Plex account token**  
-   - Your **SIMKL client_id** and **client_secret** (from SIMKL Developer app)  
+   - Your **Plex account token** or use the embedded (`plex_token_helper.py`)
+   - Your **SIMKL client_id** and **client_secret** (from SIMKL Developer - https://simkl.com/settings/developer/new/)
 3. Restart the container.
 
 #### OAuth flow
-- On restart, the container will show a **SIMKL authorization URL** in the logs.  
+- On restart, the container will show a **SIMKL authorization URL** 
 - Open this URL in your browser and complete login.  
-- Tokens will be saved in `./config/config.json`.  
-- Restart the container again for normal hourly sync.  
+- Tokens will be automatic saved in `./config/config.json`.  
+- Restart the container again and you are ready.
 
 #### Notes
 - Default sync runs every 24 hours. Change with:
@@ -105,13 +105,46 @@ First-time setup:
    ```bash
    python plex_simkl_watchlist_sync.py
    ```
-2. Edit `config.json` with your Plex account token and SIMKL client credentials.  
 
-OAuth:
+2. **Edit `config.json`** and add:
+   - Your **Plex account token** or use the embedded (`plex_token_helper.py`)
+   - Your **SIMKL client_id** and **client_secret** (from SIMKL Developer - https://simkl.com/settings/developer/new/)
+
+
+3. 🔑 First-time setup (SIMKL authorization)
+
+Before you can sync, you need to link this tool to your SIMKL account.  
+This is a one-time step.
+
+Run:
 
 ```bash
 python plex_simkl_watchlist_sync.py --init-simkl redirect --bind 0.0.0.0:8787
 ```
+
+- `--init-simkl redirect` → starts a small local helper that will receive the SIMKL login response.  
+- `--bind 0.0.0.0:8787` → tells the helper where to listen for the login.
+
+### ℹ️ What to use instead of `0.0.0.0`
+Replace `0.0.0.0` with an address your browser can actually reach:
+
+- 🖥 **If running directly on your PC:**  
+  Use `127.0.0.1:8787` or `localhost:8787`
+
+- 🐳 **If running inside Docker on another machine:**  
+  Use that machine’s LAN IP, e.g. `192.168.1.23:8787`
+
+When you run the command, the script prints a **callback URL** like:
+
+```
+http://192.168.1.23:8787/callback
+```
+
+👉 Copy this exact URL into your SIMKL app settings under *Redirect URIs*.  
+Then open the SIMKL login link shown in the terminal, log in, and approve access.
+
+Once complete, tokens are saved into `config.json`.  
+You don’t need to repeat this step unless you reset or delete your config.
 
 Then run sync normally:
 

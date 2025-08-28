@@ -72,8 +72,9 @@ services:
    - Your **SIMKL client_id** and **client_secret** (from SIMKL Developer - https://simkl.com/settings/developer/new/)
 3. Restart the container.
 
-#### OAuth flow
-- On restart, the container will show a **SIMKL authorization URL** 
+#### First-time setup (SIMKL authorization)
+- On restart, the container will show a **SIMKL authorization URL**
+- 👉 IMPORTANT: copy this exact URL into your SIMKL app settings under *Redirect URIs*. 
 - Open this URL in your browser and complete login.  
 - Tokens will be automatic saved in `./config/config.json`.  
 - Restart the container again and you are ready.
@@ -205,7 +206,7 @@ A starter file is created on first run:
 ## 🔐 SIMKL APP
 
 ### 1) Create your SIMKL app
-- Go to **simkl.com → Developers** and create an app.
+- Go to **simkl.com → Settings → Developers** and create an app or https://simkl.com/settings/developer/new/
 - Add the **exact** redirect URI you will use (must match what you launch the helper with):
   ```
   http://<HOST>:8787/callback
@@ -226,10 +227,6 @@ python plex_token_helper.py --fetch
 ```
 
 What happens:
-
-- The helper detects whether you are running **inside a container** or **on your host**:
-  - **Container** → saves token into `/config/config.json`
-  - **Host** → saves token into `./config.json`
 - It will print a short **PIN code** and a link to `https://plex.tv/link`
 - On **any device with a browser** (PC, phone, tablet), open that link and enter the PIN
 - The script polls automatically until the link is completed

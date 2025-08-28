@@ -31,7 +31,7 @@ Requirements
 Disclaimer
 ----------
 This is a community project, not affiliated with Plex or SIMKL.
-Use at your own risk. Keep backups of your lists.
+      Use at your own risk. Keep backups of your lists.
 
 GitHub: https://github.com/cenodude/Plex-SIMKL-Watchlist-Sync
 """

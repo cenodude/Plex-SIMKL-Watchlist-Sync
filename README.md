@@ -344,8 +344,8 @@ This project is a **community-made** utility and is **not affiliated with, endor
 - **API/Platform Changes.** Plex and SIMKL may change or throttle their APIs at any time, which can break this script or cause unexpected behavior (including rate limits or temporary bans).
 - **Account Security.** Keep your `config.json` secure. 
 - **Privacy.** Logs may include media titles, IDs, and timestamps. Store logs responsibly and redact sensitive details before sharing.
-- **Terms of Service.** You are responsible for ensuring your usage complies with **Plex** and **SIMKL** Terms of Service and any applicable laws in your jurisdiction.
-- **Liability.** The authors/contributors are **not liable** for any direct, indirect, incidental, or consequential damages resulting from use or misuse of this software.
+- **Terms of Service.** You are responsible for ensuring your usage complies with **Plex** and **SIMKL** Terms of Service.
+- **Liability.** The authors/contributors are **not liable** for any direct, indirect, incidental, or consequential damages.
 - **Support.** Best-effort only. Open issues or pull requests in the repository if you encounter problems.
 
 By using this software, you acknowledge that you have read and agree to the above.

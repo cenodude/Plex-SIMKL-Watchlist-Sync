@@ -11,6 +11,7 @@
     - **Subsequent runs:** *adds and deletions* both ways, based on deltas vs the snapshot.
   - **`mirror`** — make one side exactly match the other (adds + deletions) using `source_of_truth` (`plex` or `simkl`).
 - **Built-in SIMKL OAuth redirect helper** (`--init-simkl redirect`) to obtain tokens easily.
+- **A helper script is included to fetch your Plex Account Token. (`plex_token_helper.py`)
 
 ---
 

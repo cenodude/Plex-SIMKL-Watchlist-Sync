@@ -40,7 +40,7 @@ docker pull ghcr.io/cenodude/plex-simkl-watchlist-sync:latest
 ```
 ### Run the container
 ```bash
-docker run -d --name pss \
+docker run -d --name watchlist-sync \
   -p 8787:8787 \
   -v "$PWD/config:/config" \
   -e TZ="Europe/Amsterdam" \
@@ -53,7 +53,7 @@ Or use Docker-Compose
 version: "3.8"
 
 services:
-  pss:
+  watchlist-sync:
     image: ghcr.io/cenodude/plex-simkl-watchlist-sync:latest
     container_name: plex-simkl-sync
     environment:
@@ -68,8 +68,8 @@ services:
 #### First-time setup
 1. After container starts, a `config.json` is created inside `./config/`.  
 2. **Edit `config.json`** and add:
-   - Your **Plex account token** or use the embedded (`plex_token_helper.py`)
-   - Your **SIMKL client_id** and **client_secret** (from SIMKL Developer - https://simkl.com/settings/developer/new/)
+   - Your **Plex account token** or use the embedded (`plex_token_helper.py`) in /app folder
+   - Your **SIMKL client_id** and **client_secret** (SIMKL Developer - https://simkl.com/settings/developer/new/)
 3. Restart the container.
 
 #### First-time setup (SIMKL authorization)

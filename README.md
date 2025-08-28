@@ -1,10 +1,10 @@
 <p align="center">
   <img src="images/Plex-SIMKL.jpg" alt="Plex ⇄ SIMKL Watchlist Sync" width="600">
 </p>
-
+<center>
 Keep your **Plex Watchlist** and **SIMKL “Plan to Watch”** list aligned.  
-This tool compares both lists and applies additions/removals so they end up in sync — safely and predictably.
-
+This tool compares both lists and applies additions/removals so they end up in sync.
+</center>
 ---
 
 ## ✅ Features

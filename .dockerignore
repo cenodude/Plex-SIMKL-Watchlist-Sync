@@ -1,4 +1,4 @@
-# Ignore Git and editor files
+# Ignore Git
 .git
 .gitignore
 .vscode

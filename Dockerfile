@@ -1,15 +1,8 @@
 # ./Dockerfile
 FROM python:3.12-slim
-
-# Basis deps (geen gosu meer nodig)
 RUN apt-get update \
  && apt-get install -y --no-install-recommends cron tzdata \
  && rm -rf /var/lib/apt/lists/*
-
-# Zorg dat /usr/bin/env python3 werkt (symlink naar /usr/local/bin/python)
-# We maken symlinks op beide plekken die meestal in PATH staan.
-RUN ln -s /usr/local/bin/python /usr/local/bin/python3 2>/dev/null || true \
- && ln -s /usr/local/bin/python /usr/bin/python3 2>/dev/null || true
 
 # Python runtime flags
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -30,7 +23,7 @@ COPY docker/run-sync.sh   /usr/local/bin/run-sync.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/run-sync.sh \
  && touch /var/log/cron.log
 
-# Runtime env (kan je bij run overriden)
+# Runtime env
 ENV TZ="Europe/Amsterdam" \
     RUNTIME_DIR="/config" \
     CRON_SCHEDULE="0 0 * * *" \

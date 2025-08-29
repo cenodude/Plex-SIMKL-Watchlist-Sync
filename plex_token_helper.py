@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
+
 """
 Plex Token Helper (raw PIN flow; no plexapi)
 
 - Single command: --fetch
 - Auto-detect container vs. host
-  * Container → saves to /config/config.json
-  * Host      → saves to ./config.json
+  * Container saves to /config/config.json
+  * Host      saves to ./config.json
 - Prints PIN + link; user completes linking on ANY device at https://plex.tv/link
 """
 
@@ -31,7 +32,7 @@ ANSI_R      = "\033[91m"
 ANSI_X      = "\033[0m"
 
 # --- Version / UA ------------------------------------------------------------
-__VERSION__ = "0.3.7"
+__VERSION__ = "0.3.9"
 UA = f"Plex-Token-Helper/{__VERSION__}"
 
 def cprint(*args, **kwargs):
@@ -102,13 +103,11 @@ def _plex_headers(client_id: str) -> dict:
     }
 
 def _unwrap_pin(js: dict) -> dict:
-    # Support both {'pin': {...}} and legacy flat shapes.
     if isinstance(js, dict) and "pin" in js and isinstance(js["pin"], dict):
         return js["pin"]
     return js or {}
 
 def _iso_to_epoch_utc(iso_str: str) -> int:
-    # e.g. '2025-08-27T23:00:30Z' -> epoch seconds, using time/calendar only
     try:
         ts = time.strptime(iso_str, "%Y-%m-%dT%H:%M:%SZ")
         return calendar.timegm(ts)
@@ -161,7 +160,7 @@ def fetch_token_with_auto_refresh(max_attempts: int = 3) -> str:
     On expiry, automatically creates a new PIN (up to max_attempts).
     Returns the token string, or raises SystemExit if all attempts expire.
     """
-    attempts = max(1, int(max_attempts))  # clamp to at least 1 to satisfy type checkers
+    attempts = max(1, int(max_attempts))  
     cid = "plex-simkl-bridge-" + uuid.uuid4().hex[:8]
     with requests.Session() as session:
         for attempt in range(1, attempts + 1):
@@ -179,7 +178,6 @@ def fetch_token_with_auto_refresh(max_attempts: int = 3) -> str:
             if attempt < attempts:
                 cprint(f"{ANSI_YELLOW}[i]{ANSI_X} PIN expired; requesting a new code...")
 
-    # If we reach here, all attempts expired without a token
     raise SystemExit(f"{ANSI_R}[!]{ANSI_X} PIN expired too many times. Aborting.")
 
 # --- CLI ---------------------------------------------------------------------

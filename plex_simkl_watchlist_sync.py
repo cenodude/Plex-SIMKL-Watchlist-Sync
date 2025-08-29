@@ -50,7 +50,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from typing import Any, Sequence, Tuple, List, Dict, Set, Optional, NoReturn, cast
 
-__VERSION__ = "0.3.7"
+__VERSION__ = "0.3.9"
 
 # --- timestamped & colored print ---
 ANSI_DIM    = "\033[90m"  # grey
@@ -170,7 +170,6 @@ def clear_state(path: Path) -> None:
         pass
 
 def print_banner() -> None:
-    # Use builtins.print to avoid the timestamp wrapper
     builtins.print("")
     builtins.print(
         f"{ANSI_G}Plex{ANSI_X} ⇄ {ANSI_R}SIMKL{ANSI_X} Watchlist Sync "
@@ -366,12 +365,6 @@ def iso_to_epoch(s: Optional[str]) -> int:
         return 0
 
 def allitems_delta(simkl_cfg: dict, typ: str, status: str, since_iso: str, debug: bool=False) -> List[dict]:
-    """
-    Fetch delta for given type/status since since_iso.
-    type: "movies" | "shows"
-    status: "plantowatch" | "completed" | "dropped" | "watching"
-    Returns raw list of items (each has nested movie/show + ids).
-    """
     hdrs = simkl_headers(simkl_cfg)
     base = f"{SIMKL_ALL_ITEMS}/{'movies' if typ=='movies' else 'shows'}/{status}"
     params = {"date_from": since_iso}
@@ -430,12 +423,6 @@ def apply_simkl_deltas(prev_idx: Dict[str, dict],
                        prev_acts: Optional[dict],
                        curr_acts: dict,
                        debug: bool=False) -> Dict[str, dict]:
-    """
-    Update previous PTW index using SIMKL /sync/activities.
-    - No previous state: full PTW fetch.
-    - plantowatch changed: full refresh for that type (covers pure deletes + additions).
-    - completed/dropped/watching changed: remove those from the PTW index.
-    """
     idx = dict(prev_idx or {})
 
     # Initial seed
@@ -727,7 +714,7 @@ def resolve_discover_item(acct: MyPlexAccount, ids: dict, libtype: str, debug: b
             hits = acct.searchDiscover(q, libtype=libtype) or []
         except Exception as e:
             _plexapi_upgrade_hint("MyPlexAccount.searchDiscover(libtype=...)", e, debug)
-            hits = []  # unreachable (above exits), but keeps Pylance happy
+            hits = []  # unreachable (above exits),fix for Pylance nonsence
 
         for md in hits:
             md_ids = plex_item_to_ids(md)

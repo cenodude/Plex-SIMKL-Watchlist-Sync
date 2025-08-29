@@ -6,7 +6,7 @@ log(){ echo "[$(date -Iseconds)] $*"; }
 # ---------- Defaults ----------
 : "${TZ:=Europe/Amsterdam}"
 : "${RUNTIME_DIR:=/config}"
-: "${CRON_SCHEDULE:=0 0 * * *}"   # leeg = run once
+: "${CRON_SCHEDULE:=0 0 * * *}"   # empty = run once
 : "${PUID:=1000}"
 : "${PGID:=1000}"
 : "${SYNC_CMD:=python /app/plex_simkl_watchlist_sync.py --sync}"
@@ -46,7 +46,7 @@ fi
 ln -sf "$RUNTIME_DIR/config.json" /app/config.json
 log "[ENTRYPOINT] Linked $RUNTIME_DIR/config.json -> /app/config.json"
 
-# Merge ENV → config.json (safe if file missing/invalid)
+# Merge ENV config.json (safe if file missing/invalid)
 python - <<'PY'
 import json, os, sys
 cfg_path = '/app/config.json'
@@ -137,7 +137,6 @@ else
   log "[INIT] No SIMKL access_token; starting OAuth flow"
   log "[INIT] Map port 8787 on first run (-p 8787:8787)"
   cd "$RUNTIME_DIR"
-  # su instead of gosu
   exec su -s /bin/sh -c "${INIT_CMD} && echo '[INIT] Done. Restart container to start normal syncs.'" appuser
 fi
 
@@ -148,7 +147,7 @@ if [ -z "${CRON_SCHEDULE}" ]; then
 fi
 
 # ---------- CRON MODE ----------
-# Prepare cron.d file with PATH/SHELL and user field (no gosu)
+# Prepare cron.d file with PATH/SHELL and user field 
 {
   echo 'SHELL=/bin/sh'
   echo 'PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'
@@ -158,6 +157,5 @@ fi
 
 chmod 0644 /etc/cron.d/plex-simkl
 
-# Don't use "crontab /etc/cron.d/..."; cron reads files in /etc/cron.d itself
 log "[ENTRYPOINT] Cron scheduled: ${CRON_SCHEDULE}"
 exec cron -f

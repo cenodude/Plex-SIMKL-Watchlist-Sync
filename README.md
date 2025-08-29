@@ -1,5 +1,6 @@
 <p align="center">
   <img src="images/Plex-SIMKL.jpg" alt="Plex ⇄ SIMKL Watchlist Sync" width="600">
+  
 </p>
 
 ## ✅ Features

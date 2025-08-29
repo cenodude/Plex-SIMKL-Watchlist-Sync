@@ -30,7 +30,7 @@ if [ -n "$MISSING" ]; then
   log "[SKIP] Missing required fields: $MISSING → aborting sync"
   exit 0
 fi
-# --- END TOKEN CHECK ---
+# --- END TOKEN CHECK PBE---
 
 # Simple lock to prevent overlapping runs
 LOCKDIR="$RUNTIME_DIR/.sync.lock"

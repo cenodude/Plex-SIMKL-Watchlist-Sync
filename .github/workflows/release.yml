@@ -12,7 +12,7 @@ on:
         default: ""
 
 permissions:
-  contents: write   # needed for creating/uploading releases
+  contents: write
 
 jobs:
   build-zip:

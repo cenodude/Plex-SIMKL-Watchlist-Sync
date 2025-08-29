@@ -19,6 +19,9 @@ import sys
 import threading
 import time
 import os
+import shutil
+import urllib.request
+import urllib.error
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -30,9 +33,6 @@ try:
 except Exception:
     yaml = None
     HAVE_YAML = False
-
-import urllib.request
-import urllib.error
 
 import uvicorn
 from fastapi import Body, FastAPI, Request, Path as FPath, Query
@@ -51,10 +51,10 @@ from _auth_helper import (
     simkl_build_authorize_url,
     simkl_exchange_code,
 )
-# FIX: match filename _TMDB.py (capital B)
+# Let op: bestandsnaam is _TMDB.py (met hoofdletter B)
 from _TMDB import get_poster_file, get_meta
 from _FastAPI import get_index_html
-from _secheduling import SyncScheduler
+from _secheduling import SyncScheduler  # jouw scheduler module
 
 ROOT = Path(__file__).resolve().parent
 
@@ -71,7 +71,7 @@ STATE_PATHS = [CONFIG_BASE / "state.json", ROOT / "state.json"]
 SYNC_PROC_LOCK = threading.Lock()
 RUNNING_PROCS: Dict[str, subprocess.Popen] = {}
 MAX_LOG_LINES = 3000
-LOG_BUFFERS: Dict[str, List[str]] = {"SYNC": [], "PLEX": [], "SIMKL": []}
+LOG_BUFFERS: Dict[str, List[str]] = {"SYNC": [], "PLEX": [], "SIMKL": [], "TRBL": []}
 
 SIMKL_STATE: Dict[str, Any] = {}
 
@@ -275,7 +275,6 @@ def _parse_epoch(v: Any) -> int:
         if isinstance(v, (int, float)): return int(v)
         s = str(v).strip()
         if s.isdigit(): return int(s)
-        # ISO-ish
         s = s.replace("Z","+00:00")
         try:
             dt = datetime.fromisoformat(s)
@@ -286,27 +285,18 @@ def _parse_epoch(v: Any) -> int:
         return 0
 
 def _pick_added(d: Dict[str, Any]) -> Optional[str]:
-    """
-    Try a handful of common keys and shapes to find an 'added at' timestamp.
-    Accepts ISO strings or epoch (seconds). Returns ISO-ish string or None.
-    """
+    """Find a plausible 'added at' timestamp in various shapes."""
     if not isinstance(d, dict):
         return None
-
-    # direct keys
     for k in ("added", "added_at", "addedAt", "date_added", "created_at", "createdAt"):
         v = d.get(k)
         if v:
-            # epoch?
             try:
                 if isinstance(v, (int, float)):
                     return datetime.utcfromtimestamp(int(v)).isoformat() + "Z"
-                # string that parses into a Date on the frontend is fine
                 return str(v)
             except Exception:
                 return str(v)
-
-    # nested common shapes
     dates = d.get("dates") or d.get("meta") or d.get("attributes") or {}
     if isinstance(dates, dict):
         for k in ("added", "added_at", "created", "created_at"):
@@ -318,15 +308,10 @@ def _pick_added(d: Dict[str, Any]) -> Optional[str]:
                     return str(v)
                 except Exception:
                     return str(v)
-
     return None
 
-
 def _tmdb_genres(api_key: str, typ: str, tmdb_id: int, ttl_days: int = 14) -> List[str]:
-    """
-    Fetch genres from TMDb for movie/tv and cache the raw JSON for ttl_days.
-    Returns a list of genre names (strings). Safe fallback to [] on error.
-    """
+    """Fetch & cache TMDb genres for movie/tv. Safe fallback to []."""
     try:
         meta_dir = CACHE_DIR / "tmdb_meta"
         meta_dir.mkdir(parents=True, exist_ok=True)
@@ -357,27 +342,16 @@ def _tmdb_genres(api_key: str, typ: str, tmdb_id: int, ttl_days: int = 14) -> Li
             name = g.get("name")
             if isinstance(name, str) and name.strip():
                 genres.append(name.strip())
-        return genres[:8]  # keep it short
+        return genres[:8]
     except Exception:
         return []
 
-
 def _wall_items_from_state() -> List[Dict[str, Any]]:
-    """
-    Build watchlist preview items from state.json (Plex + SIMKL), choosing the
-    newest available 'added' timestamp between the two sources, and attach:
-      - status: 'both' | 'plex_only' | 'simkl_only'
-      - added_epoch: seconds since epoch
-      - added_when: ISO-like string (if available)
-      - added_src: 'plex' | 'simkl' | ''
-      - categories: TMDb genres (lightweight, cached)
-    The list is sorted newest-first.
-    """
+    """Build watchlist preview items from state.json, newest-first."""
     st = _load_state()
     plex_items = (st.get("plex", {}) or {}).get("items", {}) or {}
     simkl_items = (st.get("simkl", {}) or {}).get("items", {}) or {}
 
-    # Pull TMDb key once; if missing, we skip genres to avoid extra work.
     cfg = load_config()
     api_key = (cfg.get("tmdb", {}) or {}).get("api_key") or ""
 
@@ -385,12 +359,10 @@ def _wall_items_from_state() -> List[Dict[str, Any]]:
     all_keys = set(plex_items.keys()) | set(simkl_items.keys())
 
     def iso_to_epoch(iso: Optional[str]) -> int:
-        if iso is None:
-            return 0
+        if iso is None: return 0
         try:
             s = str(iso).strip()
-            if s.isdigit():
-                return int(s)
+            if s.isdigit(): return int(s)
             s = s.replace("Z", "+00:00")
             return int(datetime.fromisoformat(s).timestamp())
         except Exception:
@@ -410,7 +382,6 @@ def _wall_items_from_state() -> List[Dict[str, Any]]:
         year = info.get("year") or info.get("release_year")
         tmdb_id = (info.get("ids", {}) or {}).get("tmdb") or info.get("tmdb")
 
-        # Decide "added" using robust picker
         p_when = _pick_added(p)
         s_when = _pick_added(s)
         p_ep = iso_to_epoch(p_when)
@@ -427,7 +398,6 @@ def _wall_items_from_state() -> List[Dict[str, Any]]:
 
         status = "both" if key in plex_items and key in simkl_items else ("plex_only" if key in plex_items else "simkl_only")
 
-        # Optional genres (cached); avoid hammering TMDb if key missing or id missing.
         categories: List[str] = []
         if api_key and tmdb_id:
             try:
@@ -448,7 +418,6 @@ def _wall_items_from_state() -> List[Dict[str, Any]]:
             "categories": categories,
         })
 
-    # Newest first
     out.sort(key=lambda x: (x.get("added_epoch") or 0, x.get("year") or 0), reverse=True)
     return out
 
@@ -523,7 +492,6 @@ async def lifespan(app: FastAPI):
         if sch.get("enabled"):
             scheduler.start()
     except Exception:
-        # don't crash startup on scheduler issues
         pass
     try:
         yield
@@ -537,7 +505,6 @@ app = FastAPI(lifespan=lifespan)
 
 # -------- Scheduler wiring --------
 def _is_sync_running() -> bool:
-    # Reuse RUNNING_PROCS["SYNC"] handle if present
     p = RUNNING_PROCS.get("SYNC")
     try:
         return p is not None and (p.poll() is None)
@@ -545,7 +512,6 @@ def _is_sync_running() -> bool:
         return False
 
 def _start_sync_from_scheduler() -> bool:
-    # Start the same command as /api/run does, but only if not already running
     if _is_sync_running():
         return False
     sync_script = ROOT / "plex_simkl_watchlist_sync.py"
@@ -555,7 +521,7 @@ def _start_sync_from_scheduler() -> bool:
     start_proc_detached(cmd, tag="SYNC")
     return True
 
-# Instantiate scheduler with config callbacks
+# Instantiate scheduler
 scheduler = SyncScheduler(load_config, save_config, run_sync_fn=_start_sync_from_scheduler, is_sync_running_fn=_is_sync_running)
 
 INDEX_HTML = get_index_html()
@@ -578,7 +544,6 @@ def api_config() -> JSONResponse:
 @app.post("/api/config")
 def api_config_save(cfg: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
     save_config(cfg)
-    # Invalidate probe cache so /api/status reflects new creds immediately
     _PROBE_CACHE["plex"] = (0.0, False)
     _PROBE_CACHE["simkl"] = (0.0, False)
     return {"ok": True}
@@ -631,7 +596,6 @@ def oauth_simkl_callback(request: Request) -> PlainTextResponse:
         params = dict(request.query_params); code = params.get("code"); state = params.get("state")
         if not code or not state: return PlainTextResponse("Missing code or state.", status_code=400)
         if state != SIMKL_STATE.get("state"): return PlainTextResponse("State mismatch.", status_code=400)
-        # Ensure redirect_uri is a string
         redirect_uri = str(SIMKL_STATE.get("redirect_uri") or f"{request.base_url}callback")
         cfg = load_config(); simkl_cfg = cfg.setdefault("simkl", {})
         client_id = (simkl_cfg.get("client_id") or "").strip(); client_secret = (simkl_cfg.get("client_secret") or "").strip()
@@ -658,7 +622,9 @@ def api_run_sync() -> Dict[str, Any]:
     with SYNC_PROC_LOCK:
         if "SYNC" in RUNNING_PROCS and RUNNING_PROCS["SYNC"].poll() is None:
             return {"ok": False, "error": "Sync already running"}
-        cmd = [sys.executable, str(sync_script), "--sync"]; start_proc_detached(cmd, tag="SYNC"); return {"ok": True}
+        cmd = [sys.executable, str(sync_script), "--sync"]
+        start_proc_detached(cmd, tag="SYNC")
+        return {"ok": True}
 
 @app.get("/api/run/summary")
 def api_run_summary() -> JSONResponse:
@@ -714,7 +680,7 @@ def api_state_wall() -> Dict[str, Any]:
         return {"ok": False, "error": "No state.json found or empty.", "missing_tmdb_key": not bool(api_key)}
     return {
         "ok": True,
-        "items": items,                 # already newest-first
+        "items": items,
         "missing_tmdb_key": not bool(api_key),
         "last_sync_epoch": st.get("last_sync_epoch"),
     }
@@ -747,7 +713,7 @@ def api_tmdb_meta(typ: str = FPath(...), tmdb_id: int = FPath(...)) -> Dict[str,
     except Exception as e:
         return {"ok": False, "error": str(e)}
 
-# --- Scheduling API (single source of truth) ---
+# --- Scheduling API ---
 @app.get("/api/scheduling")
 def api_sched_get():
     cfg = load_config()
@@ -768,6 +734,46 @@ def api_sched_post(payload: dict = Body(...)):
 @app.get("/api/scheduling/status")
 def api_sched_status():
     return scheduler.status()
+
+# --- Troubleshoot API ---
+def _safe_remove_path(p: Path) -> bool:
+    try:
+        if p.is_dir():
+            shutil.rmtree(p, ignore_errors=True)
+        elif p.exists():
+            p.unlink(missing_ok=True)
+        return True
+    except Exception:
+        return False
+
+@app.post("/api/troubleshoot/clear-cache")
+def api_trbl_clear_cache() -> Dict[str, Any]:
+    # Verwijder inhoud van CACHE_DIR, maar laat de dir bestaan
+    deleted_files = 0
+    deleted_dirs = 0
+    if CACHE_DIR.exists():
+        for entry in CACHE_DIR.iterdir():
+            try:
+                if entry.is_dir():
+                    shutil.rmtree(entry, ignore_errors=True)
+                    deleted_dirs += 1
+                else:
+                    entry.unlink(missing_ok=True)
+                    deleted_files += 1
+            except Exception:
+                pass
+    _append_log("TRBL", "\x1b[91m[TROUBLESHOOT]\x1b[0m Cleared cache folder.")
+    return {"ok": True, "deleted_files": deleted_files, "deleted_dirs": deleted_dirs}
+
+@app.post("/api/troubleshoot/reset-state")
+def api_trbl_reset_state() -> Dict[str, Any]:
+    sync_script = ROOT / "plex_simkl_watchlist_sync.py"
+    if not sync_script.exists():
+        return {"ok": False, "error": "plex_simkl_watchlist_sync.py not found"}
+    # Start asynchroon met eigen logtag
+    cmd = [sys.executable, str(sync_script), "--reset-state"]
+    start_proc_detached(cmd, tag="TRBL")
+    return {"ok": True, "started": True}
 
 # ---- Main ----
 def main(host: str = "0.0.0.0", port: int = 8787) -> None:

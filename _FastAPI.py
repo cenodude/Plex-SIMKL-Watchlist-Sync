@@ -89,6 +89,11 @@ def get_index_html() -> str:
   .btn:hover{box-shadow:0 0 14px var(--glow)}
   .btn:active{transform:translateY(1px)}
   .btn.acc{background:var(--grad1)}
+  .btn.danger{
+    background:linear-gradient(135deg,#ff4d4f,#ff7a7a);
+    border-color:#ff9a9a55;
+    box-shadow:0 0 14px #ff4d4f55;
+  }
   .btn:disabled{opacity:.55;cursor:not-allowed;box-shadow:none}
   .badges{display:flex;gap:8px;margin:0;flex-wrap:wrap}
   .badge{padding:6px 10px;border-radius:999px;font-weight:650;display:inline-flex;align-items:center;gap:8px;border:1px solid transparent}
@@ -134,24 +139,19 @@ def get_index_html() -> str:
     padding:12px 16px;
     border-radius:14px;
     border:1px solid var(--border);
-    background:#121224; /* base like other .btn */
+    background:#121224;
     color:#fff;
     font-weight:650;
   }
-  /* Save */
   .footer .btn:first-child{
     background:linear-gradient(180deg,rgba(255,255,255,.02),transparent), var(--grad2);
     box-shadow:0 0 14px var(--glow2);
   }
-  /* Exit */
   .footer .btn:nth-child(2){
     background:linear-gradient(180deg,rgba(255,255,255,.02),transparent), var(--grad3);
     box-shadow:0 0 14px #ff7ae044;
   }
-  .footer .btn:hover{
-    filter:brightness(1.07);
-    box-shadow:0 0 22px #7c5cff66;
-  }
+  .footer .btn:hover{filter:brightness(1.07);box-shadow:0 0 22px #7c5cff66}
   .footer .btn:active{transform:translateY(1px)}
   #save_msg{margin-left:8px}
 
@@ -187,7 +187,6 @@ def get_index_html() -> str:
     box-shadow:0 0 0 transparent; transition:transform .15s ease, box-shadow .2s;
   }
   .poster:hover{ transform: translateY(-2px) scale(1.01); box-shadow:0 0 24px #7c5cff44; }
-
   .poster img{width:100%; height:100%; object-fit:cover; display:block}
 
   .ovr{position:absolute; top:8px; right:8px; display:flex; gap:6px}
@@ -197,7 +196,6 @@ def get_index_html() -> str:
 
   .cap{position:absolute; left:8px; right:8px; bottom:6px; font-size:12px; color:#dfe3ea; text-shadow:0 1px 2px #000}
 
-  /* Hover info panel – modern & colorful */
   .hover{
     position:absolute; inset:auto 0 0 0; height:62%;
     background:
@@ -228,7 +226,6 @@ def get_index_html() -> str:
   .edge.right{right:0; background:linear-gradient(270deg,var(--panel) 0%, transparent 100%)}
   .edge.hide{opacity:0}
   
-  /* badges rechtsboven in Synchronization card */
   #ops-card { position: relative; }
   #conn-badges {
     position: absolute;
@@ -243,15 +240,10 @@ def get_index_html() -> str:
 </head><body>
 <header>
   <div class="brand">
-    <!-- Inline SVG icon -->
     <svg class="logo" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-label="Plex ⇄ SIMKL Watchlist Sync">
-      <defs>
-        <linearGradient id="cw-g" x1="0" y1="0" x2="24" y2="24" gradientUnits="userSpaceOnUse">
-          <stop offset="0" stop-color="#2de2ff"/>
-          <stop offset="0.5" stop-color="#7c5cff"/>
-          <stop offset="1" stop-color="#ff7ae0"/>
-        </linearGradient>
-      </defs>
+      <defs><linearGradient id="cw-g" x1="0" y1="0" x2="24" y2="24" gradientUnits="userSpaceOnUse">
+        <stop offset="0" stop-color="#2de2ff"/><stop offset="0.5" stop-color="#7c5cff"/><stop offset="1" stop-color="#ff7ae0"/>
+      </linearGradient></defs>
       <rect x="3" y="4" width="18" height="12" rx="2" ry="2" stroke="url(#cw-g)" stroke-width="1.7"/>
       <rect x="8" y="18" width="8" height="1.6" rx="0.8" fill="url(#cw-g)"/>
       <circle cx="8" cy="9" r="1" fill="url(#cw-g)"/>
@@ -348,7 +340,7 @@ def get_index_html() -> str:
       </div>
     </div>
 
-    <!-- SCHEDULING (added back) -->
+    <!-- SCHEDULING -->
     <div class="section" id="sec-scheduling">
       <div class="head" onclick="toggleSection('sec-scheduling')"><span class="chev">▶</span><strong>Scheduling</strong></div>
       <div class="body">
@@ -373,7 +365,20 @@ def get_index_html() -> str:
       </div>
     </div>
 
-    <div class="section open" id="sec-auth">
+    <!-- TROUBLESHOOT -->
+    <div class="section" id="sec-troubleshoot">
+      <div class="head" onclick="toggleSection('sec-troubleshoot')"><span class="chev">▶</span><strong>Troubleshoot</strong></div>
+      <div class="body">
+        <div class="sub">Use these actions to fix common issues. They are safe but cannot be undone.</div>
+        <div class="chiprow">
+          <button class="btn danger" onclick="clearState()">Clear State</button>
+          <button class="btn danger" onclick="clearCache()">Clear Cache</button>
+        </div>
+        <div id="tb_msg" class="msg ok hidden">Done ✓</div>
+      </div>
+    </div>
+
+    <div class="section" id="sec-auth">
       <div class="head" onclick="toggleSection('sec-auth')"><span class="chev">▶</span><strong>Authentication</strong></div>
       <div class="body">
         <!-- PLEX -->
@@ -424,8 +429,13 @@ def get_index_html() -> str:
             <div class="grid2">
               <div style="grid-column:1 / -1">
                 <label>API key</label>
-                <input id="tmdb_api_key" placeholder="Your TMDb API key">
-                <div class="sub">Used for posters in the preview. This product uses the TMDb API but is not endorsed by TMDb.</div>
+                <input id="tmdb_api_key" placeholder="Your TMDb API key" oninput="updateTmdbHint()">
+                <div id="tmdb_hint" class="msg warn hidden">
+                  TMDb is optional but recommended to enrich posters & metadata in the preview.
+                  Get an API key at
+                  <a href="https://www.themoviedb.org/settings/api" target="_blank" rel="noopener">TMDb API settings</a>.
+                </div>
+                <div class="sub">This product uses the TMDb API but is not endorsed by TMDb.</div>
               </div>
             </div>
           </div>
@@ -473,7 +483,7 @@ def get_index_html() -> str:
     } else {
       layout.classList.add('single'); layout.classList.remove('full');
       logPanel.classList.add('hidden');
-      await loadConfig(); updateSimklButtonState(); await loadScheduling();
+      await loadConfig(); updateSimklButtonState(); await loadScheduling(); updateTmdbHint();
     }
   }
 
@@ -590,7 +600,7 @@ def get_index_html() -> str:
     cfg.tmdb.api_key = document.getElementById('tmdb_api_key').value.trim();
 
     await fetch('/api/config', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(cfg)});
-    updateSimklButtonState(); await refreshStatus();
+    updateSimklButtonState(); updateTmdbHint(); await refreshStatus();
     const m = document.getElementById('save_msg'); m.classList.remove('hidden'); setTimeout(()=>m.classList.add('hidden'), 1600);
 
     const onMain = !document.getElementById('ops-card').classList.contains('hidden');
@@ -641,34 +651,40 @@ def get_index_html() -> str:
     });
   }
 
-  // RUN SYNC
-  async function runSync(){
-    setBusy(true);
-    if(!esSum){ openSummaryStream(); }
-    if(appDebug){
-      if(esLog){ esLog.close(); }
-      esLog = new EventSource('/api/logs/stream?tag=SYNC'); esLog.onmessage = (ev)=>{ logHTML(ev.data); };
-    }
-    const r = await fetch('/api/run', {method:'POST'}); const j = await r.json();
-    if(!j.ok){
-      setSyncHeader('sync-bad', 'Failed to start sync'); setBusy(false); if(esLog){ esLog.close(); }
-    }else{
-      const checkDone = setInterval(async ()=>{
-        const snap = await fetch('/api/run/summary').then(r=>r.json()).catch(()=>null);
-        if(snap && snap.running === false && snap.exit_code != null){
-          setBusy(false); clearInterval(checkDone); await refreshStatus();
-          const onMain = !document.getElementById('ops-card').classList.contains('hidden');
-          if(onMain){ wallLoaded = false; loadWall(); wallLoaded = true; }
-        }
-      }, 800);
-    }
+  // ---- Troubleshoot actions ----
+  async function clearState(){
+    const btnText = "Clear State";
+    try{
+      const r = await fetch('/api/troubleshoot/reset-state', {method:'POST'});
+      const j = await r.json();
+      const m = document.getElementById('tb_msg');
+      m.classList.remove('hidden'); m.textContent = j.ok ? (btnText + ' – started ✓') : (btnText + ' – failed');
+      setTimeout(()=>m.classList.add('hidden'), 1600);
+    }catch(_){}
+  }
+  async function clearCache(){
+    const btnText = "Clear Cache";
+    try{
+      const r = await fetch('/api/troubleshoot/clear-cache', {method:'POST'});
+      const j = await r.json();
+      const m = document.getElementById('tb_msg');
+      m.classList.remove('hidden'); m.textContent = j.ok ? (btnText + ' – done ✓') : (btnText + ' – failed');
+      setTimeout(()=>m.classList.add('hidden'), 1600);
+    }catch(_){}
+  }
+
+  // ---- Hints / Validation ----
+  async function updateTmdbHint(){
+    const v = (document.getElementById('tmdb_api_key').value || '').trim();
+    const hint = document.getElementById('tmdb_hint');
+    hint.classList.toggle('hidden', !!v);
   }
 
   // PLEX
   async function requestPlexPin(){
     setPlexSuccess(false);
     const r = await fetch('/api/plex/pin/new', {method:'POST'}); const j = await r.json();
-    if(!j.ok){ if(appDebug) logHTML('[PLEX] ' + (j.error||'failed')); return; }
+    if(!j.ok){ return; }
     document.getElementById('plex_pin').value = j.code;
     try{ await navigator.clipboard.writeText(j.code); }catch(_){}
     window.open('https://plex.tv/link', '_blank');
@@ -700,7 +716,7 @@ def get_index_html() -> str:
     setSimklSuccess(false); await saveSettings();
     const origin = window.location.origin;
     const r = await fetch('/api/simkl/authorize', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({origin})});
-    const j = await r.json(); if(!j.ok){ if(appDebug) logHTML('[SIMKL] ' + (j.error||'failed')); return; }
+    const j = await r.json(); if(!j.ok){ return; }
     window.open(j.authorize_url, '_blank');
     if(simklPoll) { clearInterval(simklPoll); }
     let ticks = 0;
@@ -740,7 +756,6 @@ def get_index_html() -> str:
     updateEdges();
   }
 
-  // helper: relative time from epoch seconds
   function relTimeFromEpoch(epoch){
     if(!epoch) return '';
     const secs = Math.max(1, Math.floor(Date.now()/1000 - epoch));
@@ -788,7 +803,6 @@ def get_index_html() -> str:
         cap.textContent = `${it.title||''} ${it.year?'· '+it.year:''}`;
         a.appendChild(cap);
 
-        // hover panel (filled on first hover)
         const hover = document.createElement('div'); hover.className='hover';
         hover.innerHTML = `
           <div class="titleline">${it.title || ''}</div>

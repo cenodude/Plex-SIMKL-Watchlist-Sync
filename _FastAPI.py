@@ -279,6 +279,9 @@ def get_index_html() -> str:
       </div>
     </div>
 
+    <!-- Scheduler banner (compact, only visible when enabled) -->
+    <div id="schedBanner" class="msg ok" style="display:none; width:auto; max-width:100%;">Scheduler is <b>running</b> • next run: <b id="schedNext">—</b></div>
+
     <div id="sync-card">
       <div class="sync-status">
         <div id="sync-icon" class="sync-icon sync-warn"></div>
@@ -334,13 +337,38 @@ def get_index_html() -> str:
   <section id="page-settings" class="card hidden">
     <div class="title">Settings</div>
 
-    <div class="section open" id="sec-sync">
+    <div class="section" id="sec-sync">
       <div class="head" onclick="toggleSection('sec-sync')"><span class="chev">▶</span><strong>Sync Options</strong></div>
       <div class="body">
         <div class="grid2">
           <div><label>Mode</label><select id="mode"><option value="two-way">two-way</option><option value="mirror">mirror</option></select></div>
           <div><label>Source of truth (mirror only)</label><select id="source"><option value="plex">plex</option><option value="simkl">simkl</option></select></div>
           <div><label>Debug</label><select id="debug"><option value="false">off</option><option value="true">on</option></select></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCHEDULING (added back) -->
+    <div class="section" id="sec-scheduling">
+      <div class="head" onclick="toggleSection('sec-scheduling')"><span class="chev">▶</span><strong>Scheduling</strong></div>
+      <div class="body">
+        <div class="grid2">
+          <div><label>Enable</label>
+            <select id="schEnabled"><option value="false">Disabled</option><option value="true">Enabled</option></select>
+          </div>
+          <div><label>Frequency</label>
+            <select id="schMode">
+              <option value="hourly">Every hour</option>
+              <option value="every_n_hours">Every N hours</option>
+              <option value="daily_time">Daily at…</option>
+            </select>
+          </div>
+          <div><label>Every N hours</label><input id="schN" type="number" min="1" max="24" value="2"></div>
+          <div><label>Time</label><input id="schTime" type="time" value="03:30"></div>
+        </div>
+        <div class="footer" style="margin-top:0">
+          <button class="btn" onclick="saveScheduling()">Save scheduling</button>
+          <span id="schStatus" class="msg ok hidden">Saved ✓</span>
         </div>
       </div>
     </div>
@@ -441,10 +469,11 @@ def get_index_html() -> str:
       layout.classList.toggle('full', !appDebug);
       if(!esSum){ openSummaryStream(); }
       if(!wallLoaded){ loadWall(); wallLoaded=true; }
+      refreshSchedulingBanner();
     } else {
       layout.classList.add('single'); layout.classList.remove('full');
       logPanel.classList.add('hidden');
-      await loadConfig(); updateSimklButtonState();
+      await loadConfig(); updateSimklButtonState(); await loadScheduling();
     }
   }
 
@@ -567,6 +596,49 @@ def get_index_html() -> str:
     const onMain = !document.getElementById('ops-card').classList.contains('hidden');
     if(onMain){ wallLoaded = false; loadWall(); wallLoaded = true; }
     else { wallLoaded = false; }
+  }
+
+  // ---- Scheduling UI ----
+  async function loadScheduling(){
+    try{
+      const s = await fetch('/api/scheduling').then(r=>r.json());
+      document.getElementById('schEnabled').value = String(!!s.enabled);
+      document.getElementById('schMode').value = s.mode || 'hourly';
+      document.getElementById('schN').value = (s.every_n_hours != null ? s.every_n_hours : 2);
+      document.getElementById('schTime').value = s.daily_time || '03:30';
+    }catch(_){}
+    refreshSchedulingBanner();
+  }
+
+  async function saveScheduling(){
+    const payload = {
+      enabled: document.getElementById('schEnabled').value === 'true',
+      mode: document.getElementById('schMode').value,
+      every_n_hours: parseInt(document.getElementById('schN').value || '2', 10),
+      daily_time: document.getElementById('schTime').value || '03:30'
+    };
+    const r = await fetch('/api/scheduling', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
+    const j = await r.json().catch(()=>({}));
+    const m = document.getElementById('schStatus'); m.classList.remove('hidden'); m.textContent = j.ok ? 'Saved ✓' : 'Error';
+    setTimeout(()=>m.classList.add('hidden'), 1500);
+    refreshSchedulingBanner();
+  }
+
+  function refreshSchedulingBanner(){
+    fetch('/api/scheduling/status').then(r=>r.json()).then(j=>{
+      const b = document.getElementById('schedBanner');
+      if(!b) return;
+      if(j && j.config && j.config.enabled){
+        b.style.display = 'inline-block';
+        const nextRun = (j.next_run_at ? new Date(j.next_run_at*1000).toLocaleString() : '—');
+        b.querySelector('#schedNext')?.replaceWith((()=>{ const x=document.createElement('b'); x.id='schedNext'; x.textContent=nextRun; return x; })());
+      }else{
+        b.style.display = 'none';
+      }
+    }).catch(()=>{
+      const b = document.getElementById('schedBanner');
+      if(b) b.style.display = 'none';
+    });
   }
 
   // RUN SYNC

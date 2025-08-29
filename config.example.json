@@ -22,6 +22,15 @@
       "types": ["watchlist"]
     }
   },
+  "scheduling": {
+    "enabled": false,
+    "mode": "disabled",
+    "every_n_hours": 2,
+    "daily_time": "03:30",
+    "timezone": "Europe/Amsterdam",
+    "last_run": 0,
+    "next_run": 0
+  },
   "runtime": {
     "debug": false
   }

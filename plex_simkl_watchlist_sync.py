@@ -1,1366 +1,783 @@
 #!/usr/bin/env python3
-
+# -*- coding: utf-8 -*-
 """
-Plex ⇄ SIMKL Watchlist Sync
+Web UI backend (FastAPI) for Plex ⇄ SIMKL Watchlist Sync
 
-Keep your Plex Watchlist and SIMKL “Plan to Watch” list in sync.
-
-Sync modes
-----------
-- Two-way (default):
-  • First run: safe seeding (adds only, no deletions).
-  • Subsequent runs: full delta (adds + deletions) in both directions.
-- Mirror:
-  Make one side exactly match the other (choose Plex or SIMKL as the source of truth).
-
-SIMKL OAuth setup
------------------
-1. Put your SIMKL client_id and client_secret into config.json.
-2. Run the helper:
-     ./plex_simkl_watchlist_sync.py --init-simkl redirect --bind 0.0.0.0:8787
-3. Add the shown callback URL to your SIMKL app Redirect URIs.
-4. Open the printed authorization URL and complete login.
-   Tokens will be stored in config.json.
-
-Requirements
-------------
-- Python 3.10+
-- Packages: requests, plexapi (4.17.1+)
-- config.json and state.json stored next to the script (or in /config when containerized).
-
-Disclaimer
-----------
-This is a community project, not affiliated with Plex or SIMKL.
-      Use at your own risk. Keep backups of your lists.
-
-GitHub: https://github.com/cenodude/Plex-SIMKL-Watchlist-Sync
+- Docker-aware config path (/config when running from /app)
+- Real connectivity probes for Plex & SIMKL
+- TMDb posters + genres + cache
+- Newest-first poster wall ordering
+- HTML imported from _FastAPI.get_index_html()
 """
 
-import argparse
 import json
 import re
-import time
-import requests
-import sys
-import urllib.parse
-import webbrowser
 import secrets
-import datetime, builtins
-from http.server import BaseHTTPRequestHandler, HTTPServer
+import socket
+import subprocess
+import sys
+import threading
+import time
+import os
+from datetime import datetime
 from pathlib import Path
-from typing import Any, Sequence, Tuple, List, Dict, Set, Optional, NoReturn, cast
+from typing import Any, Dict, List, Optional, Tuple
+from contextlib import asynccontextmanager
 
-__VERSION__ = "0.3.9"
+try:
+    import yaml
+    HAVE_YAML = True
+except Exception:
+    yaml = None
+    HAVE_YAML = False
 
-# --- timestamped & colored print ---
-ANSI_DIM    = "\033[90m"  # grey
-ANSI_BLUE   = "\033[94m"  # blue
-ANSI_YELLOW = "\033[33m"  # yellow/orange
-ANSI_RESET  = "\033[0m"   # reset (local to logger)
+import urllib.request
+import urllib.error
 
-def log_print(*args, **kwargs):
-    ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    prefix = f"{ANSI_DIM}[{ts}]{ANSI_RESET}"
-    new_args = []
-    for a in args:
-        if isinstance(a, str):
-            a = (a.replace("[i]",     f"{ANSI_BLUE}[i]{ANSI_RESET}")
-                   .replace("[debug]", f"{ANSI_YELLOW}[debug]{ANSI_RESET}")
-                   .replace("[✓]",    f"\033[92m[✓]{ANSI_RESET}")
-                   .replace("[!]",    f"\033[91m[!]{ANSI_RESET}"))
-        new_args.append(a)
-    builtins.print(prefix, *new_args, flush=True, **kwargs)
+import uvicorn
+from fastapi import Body, FastAPI, Request, Path as FPath, Query
+from fastapi.responses import (
+    HTMLResponse,
+    JSONResponse,
+    StreamingResponse,
+    PlainTextResponse,
+    Response,
+    FileResponse,
+)
 
-print = log_print
-# -----------------------------------
+from _auth_helper import (
+    plex_request_pin,
+    plex_wait_for_token,
+    simkl_build_authorize_url,
+    simkl_exchange_code,
+)
+# FIX: match filename _TMDB.py (capital B)
+from _TMDB import get_poster_file, get_meta
+from _FastAPI import get_index_html
+from _secheduling import SyncScheduler
 
-# Paths / constants
-HERE = Path(__file__).resolve().parent
-CONFIG_PATH = HERE / "config.json"
-STATE_PATH  = HERE / "state.json"
+ROOT = Path(__file__).resolve().parent
 
-UA = f"Plex-SIMKL-Watchlist-Sync/{__VERSION__}"
+# Docker-aware config location
+CONFIG_BASE = Path("/config") if str(ROOT).startswith("/app") else ROOT
+YAML_PATH = CONFIG_BASE / "config.yml"
+JSON_PATH = CONFIG_BASE / "config.json"
+CONFIG_PATH = YAML_PATH if HAVE_YAML and YAML_PATH.exists() else JSON_PATH
 
-ANSI_G = "\033[92m"
-ANSI_R = "\033[91m"
-ANSI_X = "\033[0m"
+REPORT_DIR = CONFIG_BASE / "sync_reports"; REPORT_DIR.mkdir(parents=True, exist_ok=True)
+CACHE_DIR = ROOT / "cache"; CACHE_DIR.mkdir(parents=True, exist_ok=True)
+STATE_PATHS = [CONFIG_BASE / "state.json", ROOT / "state.json"]
 
-DISCOVER_HOST = "https://discover.provider.plex.tv"
-PLEX_WATCHLIST_PATH = "/library/sections/watchlist/all"
-PLEX_METADATA_PATH = "/library/metadata"
+SYNC_PROC_LOCK = threading.Lock()
+RUNNING_PROCS: Dict[str, subprocess.Popen] = {}
+MAX_LOG_LINES = 3000
+LOG_BUFFERS: Dict[str, List[str]] = {"SYNC": [], "PLEX": [], "SIMKL": []}
 
-# Default config
-DEFAULT_CONFIG = {
-    "plex": {
-        "account_token": ""
-    },
+SIMKL_STATE: Dict[str, Any] = {}
+
+DEFAULT_CFG: Dict[str, Any] = {
+    "plex": {"account_token": ""},
     "simkl": {
-        "client_id": "",
-        "client_secret": "",
+        "client_id": "YOUR_SIMKL_CLIENT_ID",
+        "client_secret": "YOUR_SIMKL_CLIENT_SECRET",
         "access_token": "",
         "refresh_token": "",
-        "token_expires_at": 0
+        "token_expires_at": 0,
     },
+    "tmdb": {"api_key": ""},
     "sync": {
         "enable_add": True,
         "enable_remove": True,
-        "bidirectional": {
-            "enabled": True,
-            "mode": "two-way",          # "two-way" or "mirror"
-            "source_of_truth": "plex"   # used only when mode="mirror": "simkl" or "plex"
-        },
-        "activity": {
-            "use_activity": True,
-            "types": ["watchlist"]
-        }
+        "verify_after_write": True,
+        "bidirectional": {"enabled": True, "mode": "two-way", "source_of_truth": "plex"},
     },
-    "runtime": {
-        "debug": False
-    }
+    "runtime": {"debug": False},
 }
 
-# --------------------------- Configuration -----------------------------------
-def _read_text(p: Path) -> str:
-    with open(p, "r", encoding="utf-8") as f:
-        return f.read()
+# ---------- Config read/write ----------
+def _read_yaml(p: Path) -> Dict[str, Any]:
+    if not HAVE_YAML or yaml is None:
+        raise RuntimeError("YAML support not available")
+    with p.open("r", encoding="utf-8") as f:
+        return yaml.safe_load(f) or {}
 
-def _write_text(p: Path, s: str) -> None:
-    with open(p, "w", encoding="utf-8") as f:
-        f.write(s)
+def _write_yaml(p: Path, data: Dict[str, Any]) -> None:
+    if not HAVE_YAML or yaml is None:
+        raise RuntimeError("YAML support not available")
+    tmp = p.with_suffix(p.suffix + ".tmp")
+    with tmp.open("w", encoding="utf-8") as f:
+        yaml.safe_dump(data, f, sort_keys=False)
+    tmp.replace(p)
 
-def load_config_file(path: Path) -> dict:
-    if not path.exists():
-        sys.exit(f"[!] Missing config.json at {path}.")
-    try:
-        cfg = json.loads(_read_text(path))
-    except Exception as e:
-        sys.exit(f"[!] Could not parse {path} as JSON: {e}")
-    # ensure sections and defaults
-    for k, v in DEFAULT_CONFIG.items():
-        if k not in cfg:
-            cfg[k] = v
-        elif isinstance(v, dict):
-            for kk, vv in v.items():
-                cfg[k].setdefault(kk, vv)
-    return cfg
+def _read_json(p: Path) -> Dict[str, Any]:
+    with p.open("r", encoding="utf-8") as f:
+        return json.load(f)
 
-def dump_config_file(path: Path, cfg: dict) -> None:
-    _write_text(path, json.dumps(cfg, indent=2))
+def _write_json(p: Path, data: Dict[str, Any]) -> None:
+    tmp = p.with_suffix(".tmp")
+    with tmp.open("w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2)
+    tmp.replace(p)
 
-# --------------------------- State -------------------------------------------
-def load_state(path: Path) -> Optional[dict]:
-    if not path.exists():
-        return None
-    try:
-        return json.loads(_read_text(path))
-    except Exception:
-        return None
-
-def save_state(path: Path, data: dict) -> None:
-    data = dict(data)
-    data["version"] = 2
-    data["last_sync_epoch"] = int(time.time())
-    _write_text(path, json.dumps(data, indent=2))
-
-def clear_state(path: Path) -> None:
-    try:
-        if path.exists():
-            path.unlink()
-    except Exception:
-        pass
-
-def print_banner() -> None:
-    builtins.print("")
-    builtins.print(
-        f"{ANSI_G}Plex{ANSI_X} ⇄ {ANSI_R}SIMKL{ANSI_X} Watchlist Sync "
-        f"{ANSI_G}Version {__VERSION__}{ANSI_X}"
-    )
-
-# --------------------------- SIMKL API ---------------------------------------
-SIMKL_BASE = "https://api.simkl.com"
-SIMKL_OAUTH_TOKEN   = f"{SIMKL_BASE}/oauth/token"
-SIMKL_ALL_ITEMS     = f"{SIMKL_BASE}/sync/all-items"
-SIMKL_ADD_TO_LIST   = f"{SIMKL_BASE}/sync/add-to-list"
-SIMKL_HISTORY_REMOVE= f"{SIMKL_BASE}/sync/history/remove"
-SIMKL_ACTIVITIES    = f"{SIMKL_BASE}/sync/activities"
-SIMKL_AUTH_URL      = "https://simkl.com/oauth/authorize"
-
-def simkl_headers(simkl_cfg: dict) -> dict:
-    return {
-        "User-Agent": UA,
-        "Accept": "application/json",
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {simkl_cfg.get('access_token','')}",
-        "simkl-api-key": simkl_cfg.get("client_id",""),
-    }
-
-def token_expired(simkl_cfg: dict) -> bool:
-    try:
-        exp = float(simkl_cfg.get("token_expires_at", 0.0))
-    except Exception:
-        exp = 0.0
-    return time.time() >= (exp - 60)
-
-def simkl_refresh(cfg: dict, cfg_path: Path, debug: bool=False) -> dict:
-    s = cfg.get("simkl") or {}
-    if not s.get("refresh_token"):
-        if debug:
-            print("[debug] No refresh_token; using current access_token as-is.")
-        return cfg
-    payload = {
-        "grant_type": "refresh_token",
-        "refresh_token": s["refresh_token"],
-        "client_id": s.get("client_id",""),
-        "client_secret": s.get("client_secret",""),
-    }
-    r = requests.post(SIMKL_OAUTH_TOKEN, json=payload, headers={"User-Agent": UA}, timeout=30)
-    if not r.ok:
-        raise SystemExit(f"[!] SIMKL refresh failed: HTTP {r.status_code} {r.text}")
-    tok = r.json()
-    s["access_token"] = tok["access_token"]
-    s["refresh_token"] = tok.get("refresh_token", s.get("refresh_token",""))
-    s["token_expires_at"] = time.time() + int(tok.get("expires_in", 3600))
-    cfg["simkl"] = s
-    dump_config_file(cfg_path, cfg)
-    if debug:
-        print(f"[debug] SIMKL token refreshed and saved to {cfg_path}")
-    return cfg
-
-def _cb() -> str:
-    return str(int(time.time() * 1000))
-
-def _http_get_json(url: str, headers: dict, params: Optional[dict]=None, debug: bool=False):
-    params = dict(params or {})
-    params["_cb"] = _cb()
-    if debug:
-        qs = "&".join(f"{k}={v}" for k,v in params.items())
-        print(f"[debug] SIMKL GET: {url}?{qs}")
-    r = requests.get(url, headers=headers, params=params, timeout=45)
-    if not r.ok:
-        raise SystemExit(f"[!] SIMKL GET {url} failed: HTTP {r.status_code} {r.text}")
-    try:
-        return r.json()
-    except Exception:
-        return None
-
-def simkl_get_ptw_full(simkl_cfg: dict, debug: bool=False) -> Tuple[List[dict], List[dict]]:
-    """One-time full PTW pull (movies, shows). Returns (shows, movies)."""
-    hdrs = simkl_headers(simkl_cfg)
-    shows_js  = _http_get_json(f"{SIMKL_ALL_ITEMS}/shows/plantowatch", hdrs, debug=debug)
-    movies_js = _http_get_json(f"{SIMKL_ALL_ITEMS}/movies/plantowatch", hdrs, debug=debug)
-    shows_items  = (shows_js  or {}).get("shows",  [])
-    movies_items = (movies_js or {}).get("movies", [])
-    return shows_items, movies_items
-
-def ids_from_simkl_item(it: dict) -> dict:
-    """Extract ids/title/year from a SIMKL 'movie'/'show' wrapper or 'ids' node."""
-    node = None
-    for k in ("movie", "show", "anime", "ids"):
-        if isinstance(it.get(k), dict):
-            node = it[k]
-            break
-    if node is None:
-        return {}
-    ids_block = node.get("ids", node) if ("ids" in node or node is it) else node
-    ids = {}
-    for k in ("simkl", "imdb", "tmdb", "tvdb", "slug"):
-        v = ids_block.get(k)
-        if v is not None:
-            ids[k] = v
-    if "title" in node:
-        ids["title"] = node.get("title")
-    if "year" in node:
+def load_config() -> Dict[str, Any]:
+    if CONFIG_PATH.exists():
         try:
-            ids["year"] = int(node.get("year"))
+            if CONFIG_PATH.suffix in (".yml", ".yaml") and HAVE_YAML:
+                return _read_yaml(CONFIG_PATH)
+            return _read_json(CONFIG_PATH)
         except Exception:
-            ids["year"] = node.get("year")
-    for k in ("tmdb", "tvdb", "year"):
-        if k in ids and ids[k] is not None:
-            try:
-                ids[k] = int(ids[k])
-            except Exception:
-                pass
-    return ids
+            pass
+    cfg = DEFAULT_CFG.copy()
+    save_config(cfg)
+    return cfg
 
-def combine_ids(ids: dict) -> dict:
-    """Keep only the identifiers SIMKL accepts in payloads (+title/year for Plex resolving)."""
-    out = {}
-    for k in ("imdb", "tmdb", "tvdb", "slug", "title", "year"):
-        if k in ids and ids[k] is not None:
-            out[k] = ids[k]
+def save_config(cfg: Dict[str, Any]) -> None:
+    if CONFIG_PATH.suffix in (".yml", ".yaml") and HAVE_YAML:
+        _write_yaml(CONFIG_PATH, cfg)
+    else:
+        _write_json(CONFIG_PATH, cfg)
+
+def _is_placeholder(val: str, placeholder: str) -> bool:
+    return (val or "").strip().upper() == placeholder.upper()
+
+# ---------- ANSI → HTML & logs ----------
+ANSI_RE = re.compile(r"\x1b\[(\d{1,3})(?:;\d{1,3})*m")
+ANSI_CLASS = {"90":"c90","91":"c91","92":"c92","93":"c93","94":"c94","95":"c95","96":"c96","97":"c97","0":"c0"}
+ANSI_STRIP = re.compile(r"\x1b\[[0-9;]*m")
+def _escape_html(s: str) -> str:
+    return s.replace("&","&amp;").replace("<","&lt;").replace(">","&gt;")
+def strip_ansi(s: str) -> str:
+    return ANSI_STRIP.sub("", s)
+def ansi_to_html(line: str) -> str:
+    parts, open_span, pos = [], False, 0
+    for m in ANSI_RE.finditer(line):
+        if m.start() > pos: parts.append(_escape_html(line[pos:m.start()]))
+        code = m.group(1)
+        if open_span: parts.append("</span>"); open_span = False
+        cls = ANSI_CLASS.get(code)
+        if cls and cls != "c0": parts.append(f'<span class="{cls}">'); open_span = True
+        pos = m.end()
+    if pos < len(line): parts.append(_escape_html(line[pos:]))
+    if open_span: parts.append("</span>")
+    return "".join(parts)
+def _append_log(tag: str, raw_line: str) -> None:
+    html = ansi_to_html(raw_line.rstrip("\n"))
+    buf = LOG_BUFFERS.setdefault(tag, [])
+    buf.append(html)
+    if len(buf) > MAX_LOG_LINES:
+        LOG_BUFFERS[tag] = buf[-MAX_LOG_LINES:]
+
+# ---------- Sync Summary ----------
+SUMMARY_LOCK = threading.Lock()
+SUMMARY: Dict[str, Any] = {}
+def _summary_reset() -> None:
+    with SUMMARY_LOCK:
+        SUMMARY.clear()
+        SUMMARY.update({
+            "running": False, "started_at": None, "finished_at": None, "duration_sec": None,
+            "cmd": "", "version": "", "plex_pre": None, "simkl_pre": None,
+            "plex_post": None, "simkl_post": None, "result": "", "exit_code": None,
+            "timeline": {"start": False, "pre": False, "post": False, "done": False},
+            "raw_started_ts": None,
+        })
+def _summary_set(k: str, v: Any) -> None:
+    with SUMMARY_LOCK: SUMMARY[k] = v
+def _summary_set_timeline(flag: str, value: bool = True) -> None:
+    with SUMMARY_LOCK: SUMMARY["timeline"][flag] = value
+def _summary_snapshot() -> Dict[str, Any]:
+    with SUMMARY_LOCK: return dict(SUMMARY)
+def _parse_sync_line(line: str) -> None:
+    s = strip_ansi(line).strip()
+    m = re.match(r"^> SYNC start:\s+(?P<cmd>.+)$", s)
+    if m:
+        if not SUMMARY.get("running"):
+            _summary_set("running", True); SUMMARY["raw_started_ts"] = time.time()
+            _summary_set("started_at", datetime.utcnow().isoformat() + "Z")
+        _summary_set("cmd", m.group("cmd")); _summary_set_timeline("start", True); return
+    m = re.search(r"Version\s+(?P<ver>[0-9][0-9A-Za-z\.\-\+_]*)", s)
+    if m: _summary_set("version", m.group("ver")); return
+    m = re.search(r"Pre-sync counts:\s+Plex=(?P<pp>\d+)\s+vs\s+SIMKL=(?P<sp>\d+)\s+\((?P<rel>[^)]+)\)", s)
+    if m: _summary_set("plex_pre", int(m.group("pp"))); _summary_set("simkl_pre", int(m.group("sp"))); _summary_set_timeline("pre", True); return
+    m = re.search(r"Post-sync:\s+Plex=(?P<pa>\d+)\s+vs\s+SIMKL=(?P<sa>\d+)\s*(?:→|->)\s*(?P<res>[A-Z]+)", s)
+    if m: _summary_set("plex_post", int(m.group("pa"))); _summary_set("simkl_post", int(m.group("sa"))); _summary_set("result", m.group("res")); _summary_set_timeline("post", True); return
+    m = re.search(r"\[SYNC\]\s+exit code:\s+(?P<code>\d+)", s)
+    if m:
+        code = int(m.group("code")); _summary_set("exit_code", code)
+        started = SUMMARY.get("raw_started_ts")
+        if started:
+            dur = max(0.0, time.time()-float(started)); _summary_set("duration_sec", round(dur,2))
+        _summary_set("finished_at", datetime.utcnow().isoformat()+"Z"); _summary_set("running", False); _summary_set_timeline("done", True)
+        try:
+            ts = datetime.utcnow().strftime("%Y%m%d-%H%M%S"); path = REPORT_DIR / f"sync-{ts}.json"
+            with path.open("w", encoding="utf-8") as f: json.dump(_summary_snapshot(), f, indent=2)
+        except Exception: pass
+
+def _stream_proc(cmd: List[str], tag: str) -> None:
+    try:
+        if tag == "SYNC":
+            _summary_reset(); _summary_set("running", True)
+            SUMMARY["raw_started_ts"] = time.time(); _summary_set("started_at", datetime.utcnow().isoformat()+"Z")
+            _summary_set_timeline("start", True)
+        _append_log(tag, f"> {tag} start: {' '.join(cmd)}")
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1, cwd=str(ROOT))
+        RUNNING_PROCS[tag] = proc
+        assert proc.stdout is not None
+        for line in proc.stdout:
+            _append_log(tag, line)
+            if tag == "SYNC": _parse_sync_line(line)
+        rc = proc.wait(); _append_log(tag, f"[{tag}] exit code: {rc}")
+        if tag == "SYNC" and _summary_snapshot().get("exit_code") is None:
+            _summary_set("exit_code", rc)
+            started = _summary_snapshot().get("raw_started_ts")
+            if started:
+                dur = max(0.0, time.time()-float(started)); _summary_set("duration_sec", round(dur,2))
+            _summary_set("finished_at", datetime.utcnow().isoformat()+"Z"); _summary_set("running", False); _summary_set_timeline("done", True)
+            try:
+                ts = datetime.utcnow().strftime("%Y%m%d-%H%M%S"); path = REPORT_DIR / f"sync-{ts}.json"
+                with path.open("w", encoding="utf-8") as f: json.dump(_summary_snapshot(), f, indent=2)
+            except Exception: pass
+    except Exception as e:
+        _append_log(tag, f"[{tag}] ERROR: {e}")
+    finally:
+        RUNNING_PROCS.pop(tag, None)
+
+def start_proc_detached(cmd: List[str], tag: str) -> None:
+    threading.Thread(target=_stream_proc, args=(cmd, tag), daemon=True).start()
+
+# ---------- Misc helpers ----------
+def get_primary_ip() -> str:
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        s.connect(("8.8.8.8", 80)); return s.getsockname()[0]
+    except Exception:
+        return "127.0.0.1"
+    finally:
+        s.close()
+
+# ---------- state.json helpers ----------
+def _find_state_path() -> Optional[Path]:
+    for p in STATE_PATHS:
+        if p.exists(): return p
+    return None
+
+def _load_state() -> Dict[str, Any]:
+    sp = _find_state_path()
+    if not sp: return {}
+    try:
+        return json.loads(sp.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+def _parse_epoch(v: Any) -> int:
+    # accepts int seconds, float, or ISO 8601 strings
+    if v is None: return 0
+    try:
+        if isinstance(v, (int, float)): return int(v)
+        s = str(v).strip()
+        if s.isdigit(): return int(s)
+        # ISO-ish
+        s = s.replace("Z","+00:00")
+        try:
+            dt = datetime.fromisoformat(s)
+            return int(dt.timestamp())
+        except Exception:
+            return 0
+    except Exception:
+        return 0
+
+def _pick_added(d: Dict[str, Any]) -> Optional[str]:
+    """
+    Try a handful of common keys and shapes to find an 'added at' timestamp.
+    Accepts ISO strings or epoch (seconds). Returns ISO-ish string or None.
+    """
+    if not isinstance(d, dict):
+        return None
+
+    # direct keys
+    for k in ("added", "added_at", "addedAt", "date_added", "created_at", "createdAt"):
+        v = d.get(k)
+        if v:
+            # epoch?
+            try:
+                if isinstance(v, (int, float)):
+                    return datetime.utcfromtimestamp(int(v)).isoformat() + "Z"
+                # string that parses into a Date on the frontend is fine
+                return str(v)
+            except Exception:
+                return str(v)
+
+    # nested common shapes
+    dates = d.get("dates") or d.get("meta") or d.get("attributes") or {}
+    if isinstance(dates, dict):
+        for k in ("added", "added_at", "created", "created_at"):
+            v = dates.get(k)
+            if v:
+                try:
+                    if isinstance(v, (int, float)):
+                        return datetime.utcfromtimestamp(int(v)).isoformat() + "Z"
+                    return str(v)
+                except Exception:
+                    return str(v)
+
+    return None
+
+
+def _tmdb_genres(api_key: str, typ: str, tmdb_id: int, ttl_days: int = 14) -> List[str]:
+    """
+    Fetch genres from TMDb for movie/tv and cache the raw JSON for ttl_days.
+    Returns a list of genre names (strings). Safe fallback to [] on error.
+    """
+    try:
+        meta_dir = CACHE_DIR / "tmdb_meta"
+        meta_dir.mkdir(parents=True, exist_ok=True)
+        fpath = meta_dir / f"{typ}-{tmdb_id}.json"
+
+        fresh = False
+        if fpath.exists():
+            age = time.time() - fpath.stat().st_mtime
+            if age < ttl_days * 86400:
+                fresh = True
+
+        data = None
+        if fresh:
+            try:
+                data = json.loads(fpath.read_text(encoding="utf-8"))
+            except Exception:
+                data = None
+
+        if data is None:
+            url = f"https://api.themoviedb.org/3/{'tv' if typ=='tv' else 'movie'}/{tmdb_id}?api_key={api_key}&language=en-US"
+            with urllib.request.urlopen(url, timeout=8) as resp:
+                raw = resp.read()
+            fpath.write_bytes(raw)
+            data = json.loads(raw.decode("utf-8", errors="ignore"))
+
+        genres = []
+        for g in (data.get("genres") or []):
+            name = g.get("name")
+            if isinstance(name, str) and name.strip():
+                genres.append(name.strip())
+        return genres[:8]  # keep it short
+    except Exception:
+        return []
+
+
+def _wall_items_from_state() -> List[Dict[str, Any]]:
+    """
+    Build watchlist preview items from state.json (Plex + SIMKL), choosing the
+    newest available 'added' timestamp between the two sources, and attach:
+      - status: 'both' | 'plex_only' | 'simkl_only'
+      - added_epoch: seconds since epoch
+      - added_when: ISO-like string (if available)
+      - added_src: 'plex' | 'simkl' | ''
+      - categories: TMDb genres (lightweight, cached)
+    The list is sorted newest-first.
+    """
+    st = _load_state()
+    plex_items = (st.get("plex", {}) or {}).get("items", {}) or {}
+    simkl_items = (st.get("simkl", {}) or {}).get("items", {}) or {}
+
+    # Pull TMDb key once; if missing, we skip genres to avoid extra work.
+    cfg = load_config()
+    api_key = (cfg.get("tmdb", {}) or {}).get("api_key") or ""
+
+    out: List[Dict[str, Any]] = []
+    all_keys = set(plex_items.keys()) | set(simkl_items.keys())
+
+    def iso_to_epoch(iso: Optional[str]) -> int:
+        if iso is None:
+            return 0
+        try:
+            s = str(iso).strip()
+            if s.isdigit():
+                return int(s)
+            s = s.replace("Z", "+00:00")
+            return int(datetime.fromisoformat(s).timestamp())
+        except Exception:
+            return 0
+
+    for key in all_keys:
+        p = plex_items.get(key) or {}
+        s = simkl_items.get(key) or {}
+        info = p or s
+        if not info:
+            continue
+
+        typ_raw = (info.get("type") or "").lower()
+        typ = "tv" if typ_raw in ("tv", "show") else "movie"
+
+        title = info.get("title") or info.get("name") or ""
+        year = info.get("year") or info.get("release_year")
+        tmdb_id = (info.get("ids", {}) or {}).get("tmdb") or info.get("tmdb")
+
+        # Decide "added" using robust picker
+        p_when = _pick_added(p)
+        s_when = _pick_added(s)
+        p_ep = iso_to_epoch(p_when)
+        s_ep = iso_to_epoch(s_when)
+
+        if p_ep >= s_ep:
+            added_when = p_when
+            added_epoch = p_ep
+            added_src = "plex" if p else ("simkl" if s else "")
+        else:
+            added_when = s_when
+            added_epoch = s_ep
+            added_src = "simkl" if s else ("plex" if p else "")
+
+        status = "both" if key in plex_items and key in simkl_items else ("plex_only" if key in plex_items else "simkl_only")
+
+        # Optional genres (cached); avoid hammering TMDb if key missing or id missing.
+        categories: List[str] = []
+        if api_key and tmdb_id:
+            try:
+                categories = _tmdb_genres(api_key, typ, int(tmdb_id))
+            except Exception:
+                categories = []
+
+        out.append({
+            "key": key,
+            "type": typ,
+            "title": title,
+            "year": year,
+            "tmdb": tmdb_id,
+            "status": status,
+            "added_epoch": added_epoch,
+            "added_when": added_when,
+            "added_src": added_src,
+            "categories": categories,
+        })
+
+    # Newest first
+    out.sort(key=lambda x: (x.get("added_epoch") or 0, x.get("year") or 0), reverse=True)
     return out
 
-def canonical_identity(ids: dict) -> Optional[Tuple[str, str]]:
-    for k in ("imdb", "tmdb", "tvdb", "slug"):
-        v = ids.get(k)
-        if v is not None:
-            return (k, str(v))
-    return None
-
-def identity_key(pair: Tuple[str, str]) -> str:
-    return f"{pair[0]}:{pair[1]}"
-
-# --------------------------- Activities / Deltas ------------------------------
-def simkl_get_activities(simkl_cfg: dict, debug: bool=False) -> dict:
-    """
-    Normalize SIMKL /sync/activities into a stable shape.
-    Handles 'all' as string or object, and 'tv_shows' vs 'shows'.
-    """
-    hdrs = simkl_headers(simkl_cfg)
-    js = _http_get_json(SIMKL_ACTIVITIES, hdrs, debug=debug) or {}
-
-    # top-level "all" may be a string or {"all": "..."}
-    all_raw = js.get("all")
-    all_val = all_raw.get("all") if isinstance(all_raw, dict) else all_raw
-
-    def _pick_section(j, *names):
-        for n in names:
-            sec = j.get(n)
-            if isinstance(sec, dict):
-                return sec
-        return {}
-
-    movies_sec = _pick_section(js, "movies")
-    shows_sec  = _pick_section(js, "tv_shows", "shows")
-    anime_sec  = _pick_section(js, "anime")
-
-    def _norm(sec: dict) -> dict:
-        if not isinstance(sec, dict):
-            return {"all": None, "rated_at": None, "plantowatch": None,
-                    "completed": None, "dropped": None, "watching": None}
-        return {
-            "all": sec.get("all"),
-            "rated_at": sec.get("rated_at"),
-            "plantowatch": sec.get("plantowatch"),
-            "completed": sec.get("completed"),
-            "dropped": sec.get("dropped"),
-            "watching": sec.get("watching"),
-        }
-
-    return {
-        "all": all_val,
-        "movies": _norm(movies_sec),
-        "tv_shows": _norm(shows_sec),
-        "anime": _norm(anime_sec),
-    }
-
-def needs_fetch(curr_ts: Optional[str], prev_ts: Optional[str]) -> bool:
-    """True if curr_ts is newer than prev_ts. Missing values -> no fetch."""
-    if not curr_ts:
-        return False
-    return iso_to_epoch(curr_ts) > iso_to_epoch(prev_ts)
-
-def iso_to_epoch(s: Optional[str]) -> int:
-    if not s:
-        return 0
+# ---------- Probes (cached) ----------
+_PROBE_CACHE: Dict[str, Tuple[float, bool]] = {"plex": (0.0, False), "simkl": (0.0, False)}
+def _http_get(url: str, headers: Dict[str, str], timeout: int = 8) -> Tuple[int, bytes]:
+    req = urllib.request.Request(url, headers=headers)
     try:
-        from datetime import datetime, timezone
-        try:
-            dt = datetime.fromisoformat(s.replace("Z","+00:00"))
-        except Exception:
-            from email.utils import parsedate_to_datetime
-            dt = parsedate_to_datetime(s)
-        return int(dt.replace(tzinfo=timezone.utc).timestamp())
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return r.getcode(), r.read()
+    except urllib.error.HTTPError as e:
+        return e.code, e.read() if e.fp else b""
     except Exception:
-        return 0
+        return 0, b""
 
-def allitems_delta(simkl_cfg: dict, typ: str, status: str, since_iso: str, debug: bool=False) -> List[dict]:
-    hdrs = simkl_headers(simkl_cfg)
-    base = f"{SIMKL_ALL_ITEMS}/{'movies' if typ=='movies' else 'shows'}/{status}"
-    params = {"date_from": since_iso}
-    js = _http_get_json(base, hdrs, params=params, debug=debug) or {}
-    key = "movies" if typ == "movies" else "shows"
-    return js.get(key, []) or []
-
-def build_index(rows_movies: List[dict], rows_shows: List[dict]) -> Dict[str, dict]:
-    """Build a flat index keyed by canonical id (e.g., imdb:tt123)."""
-    idx: Dict[str, dict] = {}
-    for r in rows_movies:
-        ids = combine_ids(r["ids"])
-        pair = canonical_identity(ids)
-        if not pair:
-            continue
-        idx[identity_key(pair)] = {
-            "type": "movie",
-            "ids": ids,
-            "title": r.get("title"),
-            "year": r.get("year"),
-        }
-    for r in rows_shows:
-        ids = combine_ids(r["ids"])
-        pair = canonical_identity(ids)
-        if not pair:
-            continue
-        idx[identity_key(pair)] = {
-            "type": "show",
-            "ids": ids,
-            "title": r.get("title"),
-            "year": r.get("year"),
-        }
-    return idx
-
-def build_index_from_simkl(simkl_movies: List[dict], simkl_shows: List[dict]) -> Dict[str, dict]:
-    """Build index from SIMKL API items (movies list, shows list)."""
-    idx: Dict[str, dict] = {}
-    for m in simkl_movies:
-        ids = combine_ids(ids_from_simkl_item(m))
-        pair = canonical_identity(ids)
-        if not pair:
-            continue
-        node = (m.get("movie") or m.get("show") or {})
-        idx[identity_key(pair)] = {"type": "movie", "ids": ids, "title": node.get("title"), "year": ids.get("year")}
-    for s in simkl_shows:
-        ids = combine_ids(ids_from_simkl_item(s))
-        pair = canonical_identity(ids)
-        if not pair:
-            continue
-        node = (s.get("show") or s.get("movie") or {})
-        idx[identity_key(pair)] = {"type": "show", "ids": ids, "title": node.get("title"), "year": ids.get("year")}
-    return idx
-
-def apply_simkl_deltas(prev_idx: Dict[str, dict],
-                       simkl_cfg: dict,
-                       prev_acts: Optional[dict],
-                       curr_acts: dict,
-                       debug: bool=False) -> Dict[str, dict]:
-    idx = dict(prev_idx or {})
-
-    # Initial seed
-    if not prev_acts or not prev_idx:
-        if debug:
-            print("[debug] No previous state; doing full PTW fetch.")
-        shows_list, movies_list = simkl_get_ptw_full(simkl_cfg, debug=debug)  # (shows, movies)
-        idx = build_index_from_simkl(movies_list, shows_list)
-        return idx
-
-    # Full refresh helper
-    def _refresh_type(typ: str) -> None:
-        hdrs = simkl_headers(simkl_cfg)
-        path_type = "movies" if typ == "movies" else "shows"
-        full_js = _http_get_json(f"{SIMKL_ALL_ITEMS}/{path_type}/plantowatch", hdrs, debug=debug) or {}
-        full_list = full_js.get("movies" if typ == "movies" else "shows", []) or []
-
-        fresh: Dict[str, dict] = {}
-        for it in full_list:
-            ids2 = combine_ids(ids_from_simkl_item(it))
-            pair2 = canonical_identity(ids2)
-            if not pair2:
-                continue
-            key = identity_key(pair2)
-            node = (it.get("movie") or it.get("show") or {})
-            fresh[key] = {
-                "type": "movie" if typ == "movies" else "show",
-                "ids": ids2,
-                "title": node.get("title"),
-                "year": ids2.get("year")
-            }
-
-        # Replace existing items of this type
-        to_delete = [k for k, v in idx.items() if v.get("type") == ("movie" if typ == "movies" else "show")]
-        for k in to_delete:
-            idx.pop(k, None)
-        idx.update(fresh)
-
-        if debug:
-            print(f"[debug] SIMKL {typ}.plantowatch full refresh: {len(fresh)} items (replaced {len(to_delete)})")
-
-    # Process sections
-    for typ, section in (("movies", "movies"), ("shows", "tv_shows")):
-        prev = (prev_acts.get(section) or {})
-        curr = (curr_acts.get(section) or {})
-
-        if needs_fetch(curr.get("plantowatch"), prev.get("plantowatch")):
-            _refresh_type(typ)
-
-        for st in ("completed", "dropped", "watching"):
-            if needs_fetch(curr.get(st), prev.get(st)):
-                since = prev.get(st) or "1970-01-01T00:00:00Z"
-                rows = allitems_delta(simkl_cfg, typ=("movies" if typ == "movies" else "shows"),
-                                      status=st, since_iso=since, debug=debug)
-                if debug:
-                    print(f"[debug] SIMKL delta {typ}.{st} items: {len(rows)} (prune from PTW)")
-                for it in rows:
-                    ids = combine_ids(ids_from_simkl_item(it))
-                    pair = canonical_identity(ids)
-                    if pair:
-                        idx.pop(identity_key(pair), None)
-
-    return idx
-
-# --------------------------- Plex (plexapi + read fallback) ------------------
-try:
-    import plexapi
-    from plexapi.myplex import MyPlexAccount  # type: ignore
-except Exception:
-    py = Path(sys.executable)
-    pip = py.with_name("pip")
-    print(ANSI_R + "[!] plexapi is not installed in this Python environment." + ANSI_X)
-    print("    Install it, then rerun:")
-    print(f"      {pip} install -U plexapi")
-    sys.exit(1)
-
-_PAT_IMDB = re.compile(r"(?:com\.plexapp\.agents\.imdb|imdb)://(tt\d+)", re.I)
-_PAT_TMDB = re.compile(r"(?:com\.plexapp\.agents\.tmdb|tmdb)://(\d+)", re.I)
-_PAT_TVDB = re.compile(r"(?:com\.plexapp\.agents\.thetvdb|tvdb)://(\d+)", re.I)
-
-def _extract_ids_from_guid_strings(guid_values: List[str]) -> Tuple[Optional[str], Optional[int], Optional[int]]:
-    imdb = tmdb = tvdb = None
-    for s in guid_values or []:
-        s = str(s)
-        m = _PAT_IMDB.search(s)
-        if m and not imdb:
-            imdb = m.group(1)
-        m = _PAT_TMDB.search(s)
-        if m and not tmdb:
-            try:
-                tmdb = int(m.group(1))
-            except Exception:
-                pass
-        m = _PAT_TVDB.search(s)
-        if m and not tvdb:
-            try:
-                tvdb = int(m.group(1))
-            except Exception:
-                pass
-    return imdb, tmdb, tvdb
-
-def _plexapi_upgrade_hint(where: str, exc: Optional[Exception], debug: bool) -> NoReturn:
-    v = getattr(plexapi, "__version__", "?")
-    pip_bin = Path(sys.executable).with_name("pip")
-    print("")
-    print(ANSI_R + "[!] Plex API call failed" + ANSI_X)
-    print(f"    While: {where} (plexapi {v})")
-    print("    Upgrade plexapi in the SAME environment:")
-    print(f"      {pip_bin} install -U plexapi")
-    if debug and exc is not None:
-        print(f"    [debug] Error: {repr(exc)}")
-    sys.exit(1)
-
-def plex_fetch_watchlist_items_via_plexapi(acct: MyPlexAccount, debug: bool=False) -> Optional[List[object]]:
-    try:
-        movies = acct.watchlist(libtype="movie")
-        shows = acct.watchlist(libtype="show")
-        items = (movies or []) + (shows or [])
-        if debug:
-            print(f"[debug] plexapi watchlist fetched: {len(items)} items")
-        return items
-    except Exception as e:
-        if debug:
-            print(f"[debug] plexapi watchlist fetch failed: {e}")
-        return None
-
-# Read fallback via Discover HTTP (read-only)
-def _plex_headers(token: str) -> dict:
-    return {
+def probe_plex(cfg: Dict[str, Any], max_age_sec: int = 30) -> bool:
+    ts, ok = _PROBE_CACHE["plex"]
+    now = time.time()
+    if now - ts < max_age_sec:
+        return ok
+    token = (cfg.get("plex", {}) or {}).get("account_token") or ""
+    if not token:
+        _PROBE_CACHE["plex"] = (now, False); return False
+    headers = {
         "X-Plex-Token": token,
+        "X-Plex-Client-Identifier": "plex-simkl-sync-webui",
+        "X-Plex-Product": "PlexSimklSync",
+        "X-Plex-Version": "1.0",
+        "Accept": "application/xml",
+        "User-Agent": "Mozilla/5.0",
+    }
+    code, _ = _http_get("https://plex.tv/users/account", headers=headers, timeout=8)
+    ok = (code == 200)
+    _PROBE_CACHE["plex"] = (now, ok)
+    return ok
+
+def probe_simkl(cfg: Dict[str, Any], max_age_sec: int = 30) -> bool:
+    ts, ok = _PROBE_CACHE["simkl"]
+    now = time.time()
+    if now - ts < max_age_sec:
+        return ok
+    simkl = cfg.get("simkl", {}) or {}
+    cid = (simkl.get("client_id") or "").strip()
+    tok = (simkl.get("access_token") or "").strip()
+    if not cid or not tok:
+        _PROBE_CACHE["simkl"] = (now, False); return False
+    headers = {
+        "Authorization": f"Bearer {tok}",
+        "simkl-api-key": cid,
         "Accept": "application/json",
-        "X-Plex-Product": "PlexWatchlistSync",
-        "X-Plex-Version": __VERSION__,
-        "X-Plex-Client-Identifier": "plex-simkl-bridge",
-        "X-Plex-Device": "Python",
-        "X-Plex-Device-Name": "plex-simkl-bridge",
-        "X-Plex-Platform": "Python",
-        "User-Agent": UA,
+        "User-Agent": "Mozilla/5.0",
     }
+    code, _ = _http_get("https://api.simkl.com/users/settings", headers=headers, timeout=8)
+    ok = (code == 200)
+    _PROBE_CACHE["simkl"] = (now, ok)
+    return ok
 
-def _discover_get(path: str, token: str, params: dict, timeout: int=20) -> Optional[dict]:
-    url = f"{DISCOVER_HOST}{path}"
+def connected_status(cfg: Dict[str, Any]) -> Tuple[bool, bool, bool]:
+    plex_ok = probe_plex(cfg)
+    simkl_ok = probe_simkl(cfg)
+    debug = bool(cfg.get("runtime", {}).get("debug"))
+    return plex_ok, simkl_ok, debug
+
+# ---------- FastAPI ----------
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # startup
     try:
-        r = requests.get(url, headers=_plex_headers(token), params=params, timeout=timeout)
-        if r.ok:
-            return r.json()
+        scheduler.ensure_defaults()
+        sch = (load_config().get("scheduling") or {})
+        if sch.get("enabled"):
+            scheduler.start()
     except Exception:
+        # don't crash startup on scheduler issues
         pass
-    return None
-
-def _discover_metadata_by_ratingkey(token: str, rating_key: str, debug: bool=False) -> Optional[dict]:
-    params = {"includeExternalMedia": "1"}
-    data = _discover_get(f"{PLEX_METADATA_PATH}/{rating_key}", token, params, timeout=12)
-    if not data:
-        return None
-    md = (data.get("MediaContainer", {}).get("Metadata") or [])
-    return md[0] if md else None
-
-def plex_fetch_watchlist_items_via_discover(token: str, page_size: int=100, debug: bool=False) -> List[dict[str, Any]]:
-    params_base = {"includeCollections": "1", "includeExternalMedia": "1"}
-    start = 0
-    items: List[dict[str, Any]] = []
-    while True:
-        params = dict(params_base)
-        params["X-Plex-Container-Start"] = str(start)     # ensure string
-        params["X-Plex-Container-Size"]  = str(page_size) # ensure string
-        data = _discover_get(PLEX_WATCHLIST_PATH, token, params, timeout=20)
-        if not data:
-            if debug:
-                print("[debug] discover watchlist: no data")
-            break
-        mc = data.get("MediaContainer", {}) or {}
-        md = mc.get("Metadata", []) or []
-        if debug:
-            total = mc.get("totalSize")
-            try:
-                total = int(total) if total is not None else None
-            except Exception:
-                total = None
-            print(f"[debug] discover page start={start} got={len(md)} total={total}")
-        for it in md:
-            title = it.get("title") or it.get("name")
-            rating_key = str(it.get("ratingKey") or "") or ""
-            mtype = it.get("type") or it.get("metadataType")
-            mtype = "show" if (isinstance(mtype, str) and mtype.startswith("show")) or mtype == 2 else "movie"
-
-            guid_values: List[str] = []
-            if isinstance(it.get("guid"), str):
-                guid_values.append(it["guid"])
-            if isinstance(it.get("Guid"), list):
-                for gg in it["Guid"]:
-                    if isinstance(gg, dict) and "id" in gg:
-                        guid_values.append(gg["id"])
-
-            imdb, tmdb, tvdb = _extract_ids_from_guid_strings(guid_values)
-            if not any([imdb, tmdb, tvdb]) and rating_key:
-                enriched = _discover_metadata_by_ratingkey(token, rating_key, debug=debug)
-                if enriched:
-                    e_guids: List[str] = []
-                    if isinstance(enriched.get("Guid"), list):
-                        for gg in enriched["Guid"]:
-                            if isinstance(gg, dict) and "id" in gg:
-                                e_guids.append(gg["id"])
-                    if isinstance(enriched.get("guid"), str):
-                        e_guids.append(enriched["guid"])
-                    imdb, tmdb, tvdb = _extract_ids_from_guid_strings(e_guids)
-                    if debug:
-                        allg = list(dict.fromkeys(guid_values + e_guids))
-                        print(f"[debug] Enriched '{title}' (rk={rating_key}) GUIDs: {allg}")
-
-            ids: Dict[str, Any] = {}
-            if imdb:
-                ids["imdb"] = imdb
-            if tmdb is not None:
-                ids["tmdb"] = tmdb
-            if tvdb is not None:
-                ids["tvdb"] = tvdb
-
-            items.append({"type": mtype, "title": title, "ids": ids})
-
-        size = int(mc.get("size", len(md)))
-        if not md or size < page_size:
-            break
-        start += size if size else page_size
-    return items
-
-# Mixed fetch
-def plex_fetch_watchlist_items(
-    acct: MyPlexAccount, plex_token: str, debug: bool=False
-) -> Sequence[object | dict[str, Any]]:
-    items = plex_fetch_watchlist_items_via_plexapi(acct, debug=debug)
-    if items is not None:
-        return items
-    if debug:
-        print("[debug] Falling back to Discover HTTP for watchlist read")
-    return plex_fetch_watchlist_items_via_discover(plex_token, page_size=100, debug=debug)
-
-def plex_item_to_ids(item: Any) -> Dict[str, Any]:
-    """Extract imdb/tmdb/tvdb + title/year from a plexapi item or fallback dict row."""
-    if isinstance(item, dict):
-        ids = item.get("ids") or {}
-        title = item.get("title")
-        year = item.get("year")
-        out: Dict[str, Any] = {"title": title, "year": year}
-        out.update({k: v for k, v in ids.items() if v is not None})
-        return {k: v for k, v in out.items() if v is not None}
-
-    title = getattr(item, "title", None)
-    year = getattr(item, "year", None)
-    guid_values: List[str] = []
     try:
-        for g in (getattr(item, "guids", []) or []):
-            gid = getattr(g, "id", None)
-            if isinstance(gid, str):
-                guid_values.append(gid)
-    except Exception:
-        pass
-    gsingle = getattr(item, "guid", None)
-    if isinstance(gsingle, str):
-        guid_values.append(gsingle)
-    imdb, tmdb, tvdb = _extract_ids_from_guid_strings(guid_values)
-    out: Dict[str, Any] = {"title": title, "year": year, "imdb": imdb, "tmdb": tmdb, "tvdb": tvdb}
-    return {k: v for k, v in out.items() if v}
-
-def item_libtype(item: Any) -> str:
-    if isinstance(item, dict):
-        return "show" if item.get("type") == "show" else "movie"
-    t = getattr(item, "type", "movie")
-    return "show" if t == "show" else "movie"
-
-def resolve_discover_item(acct: MyPlexAccount, ids: dict, libtype: str, debug: bool = False) -> Optional[Any]:
-    """Resolve a Plex Discover metadata item by imdb/tmdb/tvdb or title+year."""
-    queries: List[str] = []
-    if ids.get("imdb"):
-        queries.append(ids["imdb"])
-    if ids.get("tmdb"):
-        queries.append(str(ids["tmdb"]))
-    if ids.get("tvdb"):
-        queries.append(str(ids["tvdb"]))
-    if ids.get("title"):
-        queries.append(ids["title"])
-
-    # Optionally de-duplicate while preserving order
-    queries = list(dict.fromkeys(queries))
-
-    for q in queries:
-        hits: Sequence[Any] = []  # ensure it's always defined for type checker
+        yield
+    finally:
         try:
-            hits = acct.searchDiscover(q, libtype=libtype) or []
-        except Exception as e:
-            _plexapi_upgrade_hint("MyPlexAccount.searchDiscover(libtype=...)", e, debug)
-            hits = []  # unreachable (above exits),fix for Pylance nonsence
-
-        for md in hits:
-            md_ids = plex_item_to_ids(md)
-            if ids.get("imdb") and md_ids.get("imdb") == ids.get("imdb"):
-                return md
-            if ids.get("tmdb") and md_ids.get("tmdb") == ids.get("tmdb"):
-                return md
-            if ids.get("tvdb") and md_ids.get("tvdb") == ids.get("tvdb"):
-                return md
-            if ids.get("title") and ids.get("year"):
-                try:
-                    same_title = str(md_ids.get("title", "")).strip().lower() == str(ids["title"]).strip().lower()
-                    same_year = int(md_ids.get("year", 0)) == int(ids["year"])
-                    if same_title and same_year:
-                        return md
-                except Exception:
-                    pass
-    return None
-
-def plex_add_by_ids(acct: MyPlexAccount, ids: dict, libtype: str, debug: bool=False) -> bool:
-    it = resolve_discover_item(acct, ids, libtype, debug=debug)
-    if not it:
-        if debug:
-            print(f"[debug] plexapi add: could not resolve {ids}")
-        return False
-    try:
-        cast(Any, it).addToWatchlist(account=acct)  # satisfy type checker
-        if debug:
-            print(f"[debug] plexapi add OK: {getattr(it, 'title', ids)}")
-        return True
-    except Exception as e:
-        if debug:
-            print(f"[debug] plexapi add failed: {e}")
-        msg = str(e).lower()
-        if ("already on the watchlist" in msg or "already on watchlist" in msg or "409" in msg):
-            if debug:
-                print("[debug] treat as success: item already present on Plex")
-            return True
-        return False
-
-def plex_remove_by_ids(acct: MyPlexAccount, ids: dict, libtype: str, debug: bool=False) -> bool:
-    it = resolve_discover_item(acct, ids, libtype, debug=debug)
-    if not it:
-        if debug:
-            print(f"[debug] plexapi remove: could not resolve {ids}")
-        return False
-    try:
-        cast(Any, it).removeFromWatchlist(account=acct)  # satisfy type checker
-        if debug:
-            print(f"[debug] plexapi remove OK: {getattr(it, 'title', ids)}")
-        return True
-    except Exception as e:
-        if debug:
-            print(f"[debug] plexapi remove failed: {e}")
-        msg = str(e).lower()
-        if "not on the watchlist" in msg or "404" in msg or "not found" in msg:
-            if debug:
-                print("[debug] treat as success: item already absent on Plex")
-            return True
-        return False
-
-# --------------------------- Sync helpers ------------------------------------
-def _current_counts(acct, plex_token: str, simkl_cfg: dict, debug: bool=False) -> Tuple[int,int]:
-    plex_after = plex_fetch_watchlist_items(acct, plex_token, debug=debug)
-    try:
-        shows, movies = simkl_get_ptw_full(simkl_cfg, debug=debug)
-        simkl_n = len(shows) + len(movies)
-    except Exception:
-        # Fallback to 0 if SIMKL fetch fails temporarily
-        simkl_n = 0
-    return len(plex_after), simkl_n
-
-def wait_for_eventual_consistency(acct, plex_token: str, simkl_cfg: dict,
-                                  tries: int = 3, delay: float = 2.0, debug: bool=False) -> Tuple[bool,int,int]:
-    """
-    Poll a few times to let SIMKL/Plex catch up after writes.
-    Returns (equal, plex_count, simkl_count).
-    """
-    last_p = last_s = 0
-    for i in range(tries):
-        p, s = _current_counts(acct, plex_token, simkl_cfg, debug=debug)
-        last_p, last_s = p, s
-        if p == s:
-            return True, p, s
-        if debug:
-            print(f"[debug] counts not equal yet (plex={p} simkl={s}); retry {i+1}/{tries} in {delay}s...")
-        time.sleep(delay)
-    return False, last_p, last_s
-
-def neutral_precheck_msg(plex_total: int, simkl_total: int) -> None:
-    if plex_total == simkl_total:
-        print(f"[i] Pre-sync counts: Plex={plex_total} vs SIMKL={simkl_total} (equal)")
-    else:
-        print(f"[i] Pre-sync counts: Plex={plex_total} vs SIMKL={simkl_total} (differences)")
-
-def colored_postcheck(plex_total: int, simkl_total: int) -> None:
-    ok = plex_total == simkl_total
-    msg = "EQUAL" if ok else "NOT EQUAL"
-    color = ANSI_G if ok else ANSI_R
-    print(f"[i] Post-sync: Plex={plex_total} vs SIMKL={simkl_total} → {color}{msg}{ANSI_X}")
-
-def gather_plex_rows(items: Sequence[object | dict[str, Any]]) -> List[dict[str, Any]]:
-    """Normalize Plex items into rows with type/title/year/ids."""
-    rows: List[dict[str, Any]] = []
-    for it in items:
-        libtype = item_libtype(it)
-        ids_full = plex_item_to_ids(it)
-        ids = {k: v for k, v in ids_full.items() if k in ("imdb", "tmdb", "tvdb", "slug") and v}
-        rows.append({"type": libtype, "title": ids_full.get("title"), "year": ids_full.get("year"), "ids": ids})
-    return rows
-
-def snapshot_for_state(plex_idx: Dict[str, dict], simkl_idx: Dict[str, dict], last_activities: dict) -> dict:
-    return {"plex": {"items": plex_idx}, "simkl": {"items": simkl_idx, "last_activities": last_activities}}
-
-# --------------------------- CLI / Main --------------------------------------
-def build_parser(include_examples: bool = False) -> argparse.ArgumentParser:
-    epilog_examples = """Examples
-
-  Initialize SIMKL tokens (headless):
-    ./plex_simkl_watchlist_sync.py --init-simkl redirect --bind 0.0.0.0:8787
-
-  Initialize SIMKL tokens and open a browser:
-    ./plex_simkl_watchlist_sync.py --init-simkl redirect --bind 0.0.0.0:8787 --open
-
-  Run a sync (two-way by default):
-    ./plex_simkl_watchlist_sync.py --sync
-
-  Run with debug logging:
-    ./plex_simkl_watchlist_sync.py --sync --debug
-"""
-    epilog = epilog_examples if include_examples else None
-
-    ap = argparse.ArgumentParser(
-        prog="plex_simkl_watchlist_sync.py",
-        description="Sync Plex Watchlist with SIMKL.",
-        formatter_class=argparse.RawTextHelpFormatter,
-        epilog=epilog,
-    )
-    ap.add_argument("--sync", action="store_true", help="Run synchronization")
-    ap.add_argument("--init-simkl", choices=["redirect"], help="Initialize SIMKL tokens via local redirect helper")
-    ap.add_argument("--bind", default="0.0.0.0:8787", help="Bind host:port for redirect helper (default 0.0.0.0:8787)")
-    ap.add_argument("--open", action="store_true", help="With --init-simkl redirect, also open the auth URL")
-    ap.add_argument("--plex-account-token", help="Override Plex token for this run")
-    ap.add_argument("--debug", action="store_true", help="Enable verbose logging")
-    ap.add_argument("--version", action="store_true", help="Print version info and exit")
-    ap.add_argument("--reset-state", action="store_true", help="Delete state.json (next run will re-seed)")
-    return ap
-
-# ----- OAuth helper  ----------------------
-def detect_local_ip(fallback: str="localhost") -> str:
-    import socket
-    try:
-        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        s.connect(("8.8.8.8", 80))
-        ip = s.getsockname()[0]
-        s.close()
-        if ip and not ip.startswith("127."):
-            return ip
-    except Exception:
-        pass
-    return fallback
-
-def build_simkl_authorize_url(client_id: str, redirect_uri: str, state: str = "", scope: Optional[str] = None) -> str:
-    params = {"response_type": "code", "client_id": client_id, "redirect_uri": redirect_uri}
-    if state:
-        params["state"] = state
-    if scope:
-        params["scope"] = scope
-    return f"{SIMKL_AUTH_URL}?{urllib.parse.urlencode(params)}"
-
-def simkl_exchange_code_for_tokens(code: str, redirect_uri: str, simkl_cfg: dict, cfg_path: Path, debug: bool=False):
-    payload = {
-        "grant_type": "authorization_code",
-        "code": code.strip(),
-        "redirect_uri": redirect_uri,
-        "client_id": simkl_cfg.get("client_id", ""),
-        "client_secret": simkl_cfg.get("client_secret", ""),
-    }
-    r = requests.post(SIMKL_OAUTH_TOKEN, json=payload, headers={"User-Agent": UA}, timeout=30)
-    if not r.ok:
-        raise SystemExit(f"[!] SIMKL token exchange failed: HTTP {r.status_code} {r.text}")
-    tok = r.json()
-    simkl_cfg["access_token"] = tok["access_token"]
-    simkl_cfg["refresh_token"] = tok.get("refresh_token", simkl_cfg.get("refresh_token", ""))
-    simkl_cfg["token_expires_at"] = time.time() + int(tok.get("expires_in", 3600))
-    full_cfg = load_config_file(cfg_path)
-    full_cfg["simkl"] = simkl_cfg
-    dump_config_file(cfg_path, full_cfg)
-    if debug:
-        print("[debug] SIMKL token exchange success; tokens saved to", cfg_path)
-    return tok
-
-class _RedirectHandler(BaseHTTPRequestHandler):
-    def _html(self, body: str, status: int=200) -> None:
-        self.send_response(status)
-        self.send_header("Content-Type", "text/html; charset=utf-8")
-        self.end_headers()
-        self.wfile.write(body.encode("utf-8"))
-
-    def log_message(self, fmt, *args) -> None:  # type: ignore[override]
-        if getattr(self.server, "debug", False):
-            super().log_message(fmt, *args)
-
-    def do_GET(self) -> None:  # type: ignore[override]
-        parsed = urllib.parse.urlparse(self.path)
-        if parsed.path != "/callback":
-            return self._html("<h3>Not Found</h3>", 404)
-        qs = urllib.parse.parse_qs(parsed.query or "")
-        code = (qs.get("code") or [""])[0].strip()
-        state = (qs.get("state") or [""])[0].strip()
-        if not code:
-            return self._html("<h3>Missing ?code</h3>", 400)
-        if self.server.expected_state and state and state != self.server.expected_state:  # type: ignore[attr-defined]
-            return self._html("<h3>State mismatch</h3>", 400)
-        try:
-            simkl_exchange_code_for_tokens(
-                code, self.server.redirect_uri, self.server.simkl_cfg, self.server.cfg_path, debug=self.server.debug  # type: ignore[attr-defined]
-            )
-            return self._html("<h3>Success!</h3><p>Tokens saved. You can close this tab.</p>")
-        except SystemExit as e:
-            return self._html(f"<h3>Exchange failed</h3><pre>{e}</pre>", 500)
-        except Exception as e:
-            return self._html(f"<h3>Unexpected error</h3><pre>{e}</pre>", 500)
-
-def simkl_oauth_redirect(cfg_path: Path, bind_host: str="0.0.0.0", bind_port: int=8787, open_browser: bool=False, debug: bool=False) -> None:
-    import os, socket
-
-    cfg = load_config_file(cfg_path)
-    s = cfg.get("simkl") or {}
-    if not s.get("client_id") or not s.get("client_secret"):
-        raise SystemExit("[!] Please set simkl.client_id and simkl.client_secret in config.json first.")
-
-    # shown_host = friendly IP/host for printing (non-0.0.0.0 if we can detect)
-    shown_host = detect_local_ip() if bind_host in ("0.0.0.0", "::") else bind_host
-    redirect_uri = f"http://{shown_host}:{bind_port}/callback"
-
-    state = secrets.token_urlsafe(16)
-    auth_url = build_simkl_authorize_url(s["client_id"], redirect_uri, state=state)
-
-    # HTTP server that receives the SIMKL redirect
-    srv = HTTPServer((bind_host, bind_port), _RedirectHandler)
-    srv.simkl_cfg = s            # type: ignore[attr-defined]
-    srv.cfg_path = cfg_path      # type: ignore[attr-defined]
-    srv.redirect_uri = redirect_uri  # type: ignore[attr-defined]
-    srv.expected_state = state   # type: ignore[attr-defined]
-    srv.debug = debug            # type: ignore[attr-defined]
-
-    print("[i] Redirect helper is running")
-    print(f"    Bind: {bind_host}:{bind_port}")
-
-    # Detect if we’re inside a container (best-effort)
-    running_in_container = os.path.exists("/.dockerenv")
-
-    if running_in_container:
-        # Container-internal callback URL + host hint
-        try:
-            container_ip = socket.gethostbyname(socket.gethostname())
-        except Exception:
-            container_ip = shown_host
-        print("[i] Callback URL (container internal):")
-        print(f"    http://{container_ip}:{bind_port}/callback")
-        print(f"[i] If you published the port with -p {bind_port}:{bind_port}, open on your machine:")
-        print(f"    http://<docker-host-ip>:{bind_port}/callback")
-        print("[i] Add the exact URL you will use above to your SIMKL app Redirect URIs.")
-    else:
-        # Bare metal / no container
-        print(f"[i] Callback URL:")
-        print(f"    http://{shown_host}:{bind_port}/callback")
-        print("[i] Add this exact redirect URL in your SIMKL app settings.")
-
-    print("[i] Open this SIMKL authorization URL:")
-    print(f"    {auth_url}")
-
-    if open_browser:
-        try:
-            webbrowser.open(auth_url)
+            scheduler.stop()
         except Exception:
             pass
 
-    print("[i] Waiting for SIMKL to redirect back with ?code=...")
+app = FastAPI(lifespan=lifespan)
+
+# -------- Scheduler wiring --------
+def _is_sync_running() -> bool:
+    # Reuse RUNNING_PROCS["SYNC"] handle if present
+    p = RUNNING_PROCS.get("SYNC")
     try:
-        srv.handle_request()  # one request, then stop
-        print("[✓] Code handled; tokens saved if exchange succeeded.")
-    except KeyboardInterrupt:
-        print("\n[!] Redirect helper stopped.")
+        return p is not None and (p.poll() is None)
+    except Exception:
+        return False
 
-# --------------------------- Main --------------------------------------------
-def main() -> None:
-    # If user requested help, show help WITH examples
-    if any(h in sys.argv[1:] for h in ("-h", "--help")):
-        ap = build_parser(include_examples=True)
-        ap.print_help()
-        sys.exit(0)
+def _start_sync_from_scheduler() -> bool:
+    # Start the same command as /api/run does, but only if not already running
+    if _is_sync_running():
+        return False
+    sync_script = ROOT / "plex_simkl_watchlist_sync.py"
+    if not sync_script.exists():
+        return False
+    cmd = [sys.executable, str(sync_script), "--sync"]
+    start_proc_detached(cmd, tag="SYNC")
+    return True
 
-    # Normal parser (no examples in help)
-    ap = build_parser(include_examples=False)
+# Instantiate scheduler with config callbacks
+scheduler = SyncScheduler(load_config, save_config, run_sync_fn=_start_sync_from_scheduler, is_sync_running_fn=_is_sync_running)
 
-    # No args → show minimal help (no examples)
-    if not sys.argv[1:]:
-        ap.print_help()
-        return
+INDEX_HTML = get_index_html()
 
-    args = ap.parse_args()
+@app.get("/", response_class=HTMLResponse)
+def index() -> HTMLResponse:
+    return HTMLResponse(INDEX_HTML)
 
-    if args.version:
-        print(f"Plex_SIMKL_Watchlist_Sync version: {__VERSION__}")
-        print(f"plexapi version: {getattr(plexapi, '__version__', '?')}")
-        return
+@app.get("/api/status")
+def api_status() -> Dict[str, Any]:
+    cfg = load_config()
+    plex_ok, simkl_ok, debug = connected_status(cfg)
+    can_run = plex_ok and simkl_ok
+    return {"plex_connected": plex_ok, "simkl_connected": simkl_ok, "can_run": can_run, "debug": debug}
 
-    if args.reset_state:
-        clear_state(STATE_PATH)
-        print("[✓] Cleared state.json (next --sync will re-seed).")
-        return
+@app.get("/api/config")
+def api_config() -> JSONResponse:
+    return JSONResponse(load_config())
 
-    if args.init_simkl:
-        host, port = "0.0.0.0", 8787
-        if ":" in args.bind:
-            host, p = args.bind.rsplit(":", 1)
-            try:
-                port = int(p)
-            except Exception:
-                pass
-        simkl_oauth_redirect(CONFIG_PATH, bind_host=host, bind_port=port, open_browser=bool(args.open), debug=True)
-        return
+@app.post("/api/config")
+def api_config_save(cfg: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
+    save_config(cfg)
+    # Invalidate probe cache so /api/status reflects new creds immediately
+    _PROBE_CACHE["plex"] = (0.0, False)
+    _PROBE_CACHE["simkl"] = (0.0, False)
+    return {"ok": True}
 
-    if not args.sync:
-        ap.print_help()
-        return
-
-    print_banner()
-
-    cfg = load_config_file(CONFIG_PATH)
-    plex_cfg = cfg.get("plex") or {}
-    simkl_cfg = cfg.get("simkl") or {}
-    sync_cfg  = cfg.get("sync") or {}
-    run_cfg   = cfg.get("runtime") or {}
-    bidi_cfg  = (sync_cfg.get("bidirectional") or {})
-    act_cfg   = (sync_cfg.get("activity") or {})
-
-    debug = bool(args.debug or run_cfg.get("debug", False))
-
-    plex_token = args.plex_account_token or plex_cfg.get("account_token", "")
-    if not plex_token:
-        print("[!] Missing Plex token. Set 'plex.account_token' in config.json")
-        return
-
-    if not simkl_cfg.get("client_id") or not simkl_cfg.get("client_secret"):
-        print("[!] Missing SIMKL client credentials in config.json")
-        print("    Then run: ./plex_simkl_watchlist_sync.py --init-simkl redirect --bind 0.0.0.0:8787")
-        return
-
-    if not simkl_cfg.get("access_token"):
-        if simkl_cfg.get("refresh_token"):
-            cfg = simkl_refresh(cfg, CONFIG_PATH, debug=debug)
-            simkl_cfg = cfg.get("simkl") or {}
-        if not simkl_cfg.get("access_token"):
-            print("[!] No SIMKL access_token. Initialize tokens first.")
-            print("    Then run: ./plex_simkl_watchlist_sync.py --init-simkl redirect --bind 0.0.0.0:8787")
-            return
-
-    if token_expired(simkl_cfg):
-        cfg = simkl_refresh(cfg, CONFIG_PATH, debug=debug)
-        simkl_cfg = cfg.get("simkl") or {}
-
-    # Plex account
+# ---- PLEX auth ----
+@app.post("/api/plex/pin/new")
+def api_plex_pin_new() -> Dict[str, Any]:
     try:
-        acct = MyPlexAccount(token=plex_token)
+        info = plex_request_pin()
+        pin_id = info["id"]; code = info["code"]; exp_epoch = int(info["expires_epoch"]); headers = info["headers"]
+        def waiter(_pin_id: int, _headers: Dict[str, str]):
+            token = plex_wait_for_token(_pin_id, headers=_headers, timeout_sec=360, interval=1.0)
+            if token:
+                cfg = load_config(); cfg.setdefault("plex", {})["account_token"] = token; save_config(cfg)
+                _append_log("PLEX", "\x1b[92m[PLEX]\x1b[0m Token acquired and saved.")
+                _PROBE_CACHE["plex"] = (0.0, False)
+            else:
+                _append_log("PLEX", "\x1b[91m[PLEX]\x1b[0m PIN expired or not authorized.")
+        threading.Thread(target=waiter, args=(pin_id, headers), daemon=True).start()
+        expires_in = max(0, exp_epoch - int(time.time()))
+        return {"ok": True, "code": code, "pin_id": pin_id, "expiresIn": expires_in}
     except Exception as e:
-        print(ANSI_R + "[!] Could not authenticate to Plex with provided token." + ANSI_X)
-        print(f"    {e}")
-        return
+        _append_log("PLEX", f"[PLEX] ERROR: {e}")
+        return {"ok": False, "error": str(e)}
 
-    # Load prev state
-    prev_state = load_state(STATE_PATH) or {}
-    prev_plex_idx  = ((prev_state.get("plex") or {}).get("items") or {})
-    prev_simkl_idx = ((prev_state.get("simkl") or {}).get("items") or {})
-    prev_acts      = ((prev_state.get("simkl") or {}).get("last_activities") or {})
+# ---- SIMKL OAuth ----
+@app.post("/api/simkl/authorize")
+def api_simkl_authorize(payload: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
+    try:
+        origin = (payload or {}).get("origin") or ""
+        if not origin:
+            return {"ok": False, "error": "origin missing"}
+        cfg = load_config(); simkl = cfg.get("simkl", {}) or {}
+        client_id = (simkl.get("client_id") or "").strip(); client_secret = (simkl.get("client_secret") or "").strip()
+        bad_cid = (not client_id) or _is_placeholder(client_id, "YOUR_SIMKL_CLIENT_ID")
+        bad_sec = (not client_secret) or _is_placeholder(client_secret, "YOUR_SIMKL_CLIENT_SECRET")
+        if bad_cid or bad_sec:
+            return {"ok": False, "error": "SIMKL client_id and client_secret must be set in settings first"}
+        state = secrets.token_urlsafe(24); redirect_uri = f"{origin}/callback"
+        SIMKL_STATE["state"] = state; SIMKL_STATE["redirect_uri"] = redirect_uri
+        url = simkl_build_authorize_url(client_id, redirect_uri, state)
+        return {"ok": True, "authorize_url": url}
+    except Exception as e:
+        _append_log("SIMKL", f"[SIMKL] ERROR: {e}")
+        return {"ok": False, "error": str(e)}
 
-    first_run = (not prev_state) or (not prev_simkl_idx) or (not prev_acts)
+@app.get("/callback")
+def oauth_simkl_callback(request: Request) -> PlainTextResponse:
+    try:
+        params = dict(request.query_params); code = params.get("code"); state = params.get("state")
+        if not code or not state: return PlainTextResponse("Missing code or state.", status_code=400)
+        if state != SIMKL_STATE.get("state"): return PlainTextResponse("State mismatch.", status_code=400)
+        # Ensure redirect_uri is a string
+        redirect_uri = str(SIMKL_STATE.get("redirect_uri") or f"{request.base_url}callback")
+        cfg = load_config(); simkl_cfg = cfg.setdefault("simkl", {})
+        client_id = (simkl_cfg.get("client_id") or "").strip(); client_secret = (simkl_cfg.get("client_secret") or "").strip()
+        bad_cid = (not client_id) or _is_placeholder(client_id, "YOUR_SIMKL_CLIENT_ID")
+        bad_sec = (not client_secret) or _is_placeholder(client_secret, "YOUR_SIMKL_CLIENT_SECRET")
+        if bad_cid or bad_sec: return PlainTextResponse("SIMKL client_id/secret missing or placeholders in config.", status_code=400)
+        tokens = simkl_exchange_code(client_id, client_secret, code, redirect_uri)
+        if not tokens or "access_token" not in tokens: return PlainTextResponse("SIMKL token exchange failed.", status_code=400)
+        simkl_cfg["access_token"] = tokens["access_token"]
+        if tokens.get("refresh_token"): simkl_cfg["refresh_token"] = tokens["refresh_token"]
+        if tokens.get("expires_in"): simkl_cfg["token_expires_at"] = int(time.time()) + int(tokens["expires_in"])
+        save_config(cfg); _append_log("SIMKL", "\x1b[92m[SIMKL]\x1b[0m Access token saved.")
+        _PROBE_CACHE["simkl"] = (0.0, False)
+        return PlainTextResponse("SIMKL authorized. You can close this tab and return to the app.", status_code=200)
+    except Exception as e:
+        _append_log("SIMKL", f"[SIMKL] ERROR: {e}")
+        return PlainTextResponse(f"Error: {e}", status_code=500)
 
-    # 1) Pull Plex
-    plex_items = plex_fetch_watchlist_items(acct, plex_token, debug=debug)
-    print(f"[i] Plex items: {len(plex_items)}")
-    plex_rows = gather_plex_rows(plex_items)
-    plex_movies_rows = [r for r in plex_rows if r["type"] == "movie"]
-    plex_shows_rows  = [r for r in plex_rows if r["type"] == "show"]
-    plex_idx = build_index(plex_movies_rows, plex_shows_rows)
+# ---- Run & Summary ----
+@app.post("/api/run")
+def api_run_sync() -> Dict[str, Any]:
+    sync_script = ROOT / "plex_simkl_watchlist_sync.py"
+    if not sync_script.exists(): return {"ok": False, "error": "plex_simkl_watchlist_sync.py not found"}
+    with SYNC_PROC_LOCK:
+        if "SYNC" in RUNNING_PROCS and RUNNING_PROCS["SYNC"].poll() is None:
+            return {"ok": False, "error": "Sync already running"}
+        cmd = [sys.executable, str(sync_script), "--sync"]; start_proc_detached(cmd, tag="SYNC"); return {"ok": True}
 
-    # 2) SIMKL activity-first
-    simkl_idx = dict(prev_simkl_idx)
-    curr_acts: dict = {}
-    if bool(act_cfg.get("use_activity", True)):
-        curr_acts = simkl_get_activities(simkl_cfg, debug=debug)
-        simkl_idx = apply_simkl_deltas(prev_simkl_idx, simkl_cfg, prev_acts, curr_acts, debug=debug)
+@app.get("/api/run/summary")
+def api_run_summary() -> JSONResponse:
+    return JSONResponse(_summary_snapshot())
+
+@app.get("/api/run/summary/file")
+def api_run_summary_file() -> Response:
+    js = json.dumps(_summary_snapshot(), indent=2)
+    return Response(content=js, media_type="application/json", headers={"Content-Disposition": 'attachment; filename="last_sync.json"'})
+
+@app.get("/api/run/summary/stream")
+def api_run_summary_stream() -> StreamingResponse:
+    def gen():
+        last_key = None
+        while True:
+            time.sleep(0.25)
+            snap = _summary_snapshot()
+            key = (snap.get("running"), snap.get("exit_code"), snap.get("plex_post"), snap.get("simkl_post"),
+                   snap.get("result"), snap.get("duration_sec"), (snap.get("timeline", {}) or {}).get("done"))
+            if key != last_key:
+                last_key = key
+                yield f"data: {json.dumps(snap, separators=(',',':'))}\n\n"
+    return StreamingResponse(gen(), media_type="text/event-stream")
+
+# ---- Logs SSE ----
+@app.get("/api/logs/stream")
+def api_logs_stream(tag: str) -> StreamingResponse:
+    tag = (tag or "").upper()
+    if tag not in LOG_BUFFERS:
+        def empty():
+            while True:
+                time.sleep(1); yield "data: \n\n"
+        return StreamingResponse(empty(), media_type="text/event-stream")
+    def event_gen():
+        for line in LOG_BUFFERS.get(tag, []): yield f"data: {line}\n\n"
+        last_len = len(LOG_BUFFERS.get(tag, []))
+        while True:
+            time.sleep(0.25)
+            buf = LOG_BUFFERS.get(tag, [])
+            if len(buf) > last_len:
+                for line in buf[last_len:]: yield f"data: {line}\n\n"
+                last_len = len(buf)
+    return StreamingResponse(event_gen(), media_type="text/event-stream")
+
+# ---- TMDb & wall ----
+@app.get("/api/state/wall")
+def api_state_wall() -> Dict[str, Any]:
+    cfg = load_config()
+    api_key = (cfg.get("tmdb", {}) or {}).get("api_key") or ""
+    st = _load_state()
+    items = _wall_items_from_state()
+    if not items:
+        return {"ok": False, "error": "No state.json found or empty.", "missing_tmdb_key": not bool(api_key)}
+    return {
+        "ok": True,
+        "items": items,                 # already newest-first
+        "missing_tmdb_key": not bool(api_key),
+        "last_sync_epoch": st.get("last_sync_epoch"),
+    }
+
+@app.get("/art/tmdb/{typ}/{tmdb_id}")
+def api_tmdb_art(typ: str = FPath(...), tmdb_id: int = FPath(...), size: str = Query("w342")):
+    typ = typ.lower()
+    if typ == "show": typ = "tv"
+    if typ not in {"movie", "tv"}:
+        return PlainTextResponse("Bad type", status_code=400)
+    cfg = load_config(); api_key = (cfg.get("tmdb", {}) or {}).get("api_key") or ""
+    if not api_key:
+        return PlainTextResponse("TMDb key missing", status_code=404)
+    try:
+        local_path, mime = get_poster_file(api_key, typ, tmdb_id, size, CACHE_DIR)
+        return FileResponse(path=str(local_path), media_type=mime)
+    except Exception as e:
+        return PlainTextResponse(f"Poster not available: {e}", status_code=404)
+
+@app.get("/api/tmdb/meta/{typ}/{tmdb_id}")
+def api_tmdb_meta(typ: str = FPath(...), tmdb_id: int = FPath(...)) -> Dict[str, Any]:
+    typ = typ.lower()
+    if typ == "show": typ = "tv"
+    cfg = load_config(); api_key = (cfg.get("tmdb", {}) or {}).get("api_key") or ""
+    if not api_key:
+        return {"ok": False, "error": "TMDb key missing"}
+    try:
+        meta = get_meta(api_key, typ, tmdb_id, CACHE_DIR)
+        return {"ok": True, **meta}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+# --- Scheduling API (single source of truth) ---
+@app.get("/api/scheduling")
+def api_sched_get():
+    cfg = load_config()
+    return (cfg.get("scheduling") or {})
+
+@app.post("/api/scheduling")
+def api_sched_post(payload: dict = Body(...)):
+    cfg = load_config()
+    cfg["scheduling"] = (payload or {})
+    save_config(cfg)
+    if (cfg["scheduling"] or {}).get("enabled"):
+        scheduler.start(); scheduler.refresh()
     else:
-        # Fallback: full PTW each time (not ideal)
-        shows, movies = simkl_get_ptw_full(simkl_cfg, debug=debug)
-        simkl_idx = build_index_from_simkl(movies, shows)
+        scheduler.stop()
+    st = scheduler.status()
+    return {"ok": True, "next_run_at": st.get("next_run_at", 0)}
 
-    plex_total = len(plex_idx)
-    simkl_total = len(simkl_idx)
-    neutral_precheck_msg(plex_total, simkl_total)
+@app.get("/api/scheduling/status")
+def api_sched_status():
+    return scheduler.status()
 
-    # 3) Plan differences for two-way / mirror
-    def keyset(idx: Dict[str, dict], typ: str) -> Set[str]:
-        return {k for k, v in idx.items() if v.get("type") == typ}
-
-    plex_movies_keys = keyset(plex_idx, "movie")
-    plex_shows_keys  = keyset(plex_idx, "show")
-    simkl_movies_keys= keyset(simkl_idx, "movie")
-    simkl_shows_keys = keyset(simkl_idx, "show")
-
-    plex_only_movies_keys  = plex_movies_keys - simkl_movies_keys
-    plex_only_shows_keys   = plex_shows_keys  - simkl_shows_keys
-    simkl_only_movies_keys = simkl_movies_keys- plex_movies_keys
-    simkl_only_shows_keys  = simkl_shows_keys - plex_shows_keys
-
-    enable_add    = bool(sync_cfg.get("enable_add", True))
-    enable_remove = bool(sync_cfg.get("enable_remove", True))
-    bidi_enabled  = bool(bidi_cfg.get("enabled", True))
-    mode          = str(bidi_cfg.get("mode", "two-way")).lower()
-    source_of_truth = str(bidi_cfg.get("source_of_truth", "plex")).lower()
-
-    if debug:
-        print(f"[debug] plan: PLEX-only movies={len(plex_only_movies_keys)} shows={len(plex_only_shows_keys)}")
-        print(f"[debug] plan: SIMKL-only movies={len(simkl_only_movies_keys)} shows={len(simkl_only_shows_keys)}")
-        print(f"[debug] mode={mode} source={source_of_truth} add={enable_add} remove={enable_remove}")
-
-    any_failure = False
-    added_simkl = removed_simkl = added_plex = removed_plex = 0
-    hdrs_simkl = simkl_headers(simkl_cfg)
-
-    def ids_by_key(idx: Dict[str, dict], k: str) -> dict:
-        return (idx.get(k) or {}).get("ids") or {}
-
-    # ---- two-way logic with deltas on SIMKL side ----
-    if bidi_enabled and mode == "two-way":
-        if first_run:
-            # First run: safe seeding (adds only both ways)
-            if enable_add:
-                payload: Dict[str, List[dict]] = {}
-                if plex_only_movies_keys:
-                    payload["movies"] = [{"to": "plantowatch", "ids": combine_ids(ids_by_key(plex_idx, k))} for k in plex_only_movies_keys]
-                if plex_only_shows_keys:
-                    payload["shows"] = [{"to": "plantowatch", "ids": combine_ids(ids_by_key(plex_idx, k))} for k in plex_only_shows_keys]
-                if payload:
-                    if debug:
-                        print(f"[debug] SIMKL add payload (seed): {json.dumps(payload, indent=2)}")
-                    r = requests.post(SIMKL_ADD_TO_LIST, headers=hdrs_simkl, json=payload, timeout=45)
-                    if not r.ok:
-                        print(ANSI_R + f"[!] SIMKL add-to-list failed: HTTP {r.status_code} {r.text}" + ANSI_X)
-                        any_failure = True
-                    else:
-                        added_simkl += sum(len(v) for v in payload.values())
-                        if added_simkl:
-                            print(f"[✓] Added Plex→SIMKL items: {added_simkl}")
-                if enable_add:
-                    for k in simkl_only_movies_keys:
-                        if plex_add_by_ids(acct, ids_by_key(simkl_idx, k), "movie", debug=debug):
-                            added_plex += 1
-                        else:
-                            any_failure = True
-                    for k in simkl_only_shows_keys:
-                        if plex_add_by_ids(acct, ids_by_key(simkl_idx, k), "show", debug=debug):
-                            added_plex += 1
-                        else:
-                            any_failure = True
-                    if added_plex:
-                        print(f"[✓] Added SIMKL→Plex items: {added_plex}")
-        else:
-            # True deltas vs previous snapshot
-            old_plex_keys  = set(prev_plex_idx.keys())
-            new_plex_keys  = set(plex_idx.keys())
-            old_simkl_keys = set(prev_simkl_idx.keys())
-            new_simkl_keys = set(simkl_idx.keys())
-
-            plex_added_keys   = new_plex_keys  - old_plex_keys
-            plex_removed_keys = old_plex_keys  - new_plex_keys
-            simkl_added_keys  = new_simkl_keys - old_simkl_keys
-            simkl_removed_keys= old_simkl_keys - new_simkl_keys
-
-            if debug:
-                print(f"[debug] deltas: plex +{len(plex_added_keys)} / -{len(plex_removed_keys)} | simkl +{len(simkl_added_keys)} / -{len(simkl_removed_keys)}")
-
-            # Plex → SIMKL (adds)
-            if enable_add and plex_added_keys:
-                payload: Dict[str, List[dict]] = {"movies": [], "shows": []}
-                for k in plex_added_keys:
-                    rec = plex_idx.get(k)
-                    if not rec:
-                        continue
-                    to = "movies" if rec["type"] == "movie" else "shows"
-                    payload[to].append({"to": "plantowatch", "ids": combine_ids(rec["ids"])})
-                payload = {k: v for k, v in payload.items() if v}
-                if payload:
-                    if debug:
-                        print(f"[debug] SIMKL add payload (plex→simkl): {json.dumps(payload, indent=2)}")
-                    r = requests.post(SIMKL_ADD_TO_LIST, headers=hdrs_simkl, json=payload, timeout=45)
-                    if not r.ok:
-                        print(ANSI_R + f"[!] SIMKL add-to-list failed: HTTP {r.status_code} {r.text}" + ANSI_X)
-                        any_failure = True
-                    else:
-                        added_simkl += sum(len(v) for v in payload.values())
-
-            # Plex → SIMKL (removes)
-            if enable_remove and plex_removed_keys:
-                payload: Dict[str, List[dict]] = {"movies": [], "shows": []}
-                for k in plex_removed_keys:
-                    rec = (prev_plex_idx.get(k) or {})
-                    if not rec:
-                        continue
-                    to = "movies" if rec.get("type") == "movie" else "shows"
-                    payload[to].append({"ids": combine_ids(rec.get("ids") or {})})
-                payload = {k: v for k, v in payload.items() if v}
-                if payload:
-                    if debug:
-                        print(f"[debug] SIMKL remove payload (plex→simkl): {json.dumps(payload, indent=2)}")
-                    r = requests.post(SIMKL_HISTORY_REMOVE, headers=hdrs_simkl, json=payload, timeout=45)
-                    if not r.ok:
-                        print(ANSI_R + f"[!] SIMKL history/remove failed: HTTP {r.status_code} {r.text}" + ANSI_X)
-                        any_failure = True
-                    else:
-                        removed_simkl += sum(len(v) for v in payload.values())
-
-            # SIMKL → Plex (adds)
-            if enable_add and simkl_added_keys:
-                for k in simkl_added_keys:
-                    rec = simkl_idx.get(k)
-                    if not rec:
-                        continue
-                    if plex_add_by_ids(acct, rec["ids"], rec["type"], debug=debug):
-                        added_plex += 1
-                    else:
-                        any_failure = True
-
-            # SIMKL → Plex (removes)
-            if enable_remove and simkl_removed_keys:
-                for k in simkl_removed_keys:
-                    rec = (prev_simkl_idx.get(k) or {})
-                    if not rec:
-                        continue
-                    if plex_remove_by_ids(acct, rec.get("ids") or {}, rec.get("type") or "movie", debug=debug):
-                        removed_plex += 1
-                    else:
-                        any_failure = True
-
-    elif bidi_enabled and mode == "mirror":
-        if source_of_truth == "plex":
-            # Make SIMKL match Plex
-            simkl_add_payload: Dict[str, List[dict]] = {}
-            if enable_add and plex_only_movies_keys:
-                simkl_add_payload["movies"] = [{"to": "plantowatch", "ids": combine_ids(ids_by_key(plex_idx, k))} for k in plex_only_movies_keys]
-            if enable_add and plex_only_shows_keys:
-                simkl_add_payload["shows"]  = [{"to": "plantowatch", "ids": combine_ids(ids_by_key(plex_idx, k))} for k in plex_only_shows_keys]
-            if simkl_add_payload:
-                if debug: print(f"[debug] SIMKL add payload (mirror/plex): {json.dumps(simkl_add_payload, indent=2)}")
-                r = requests.post(SIMKL_ADD_TO_LIST, headers=hdrs_simkl, json=simkl_add_payload, timeout=45)
-                if not r.ok:
-                    print(ANSI_R + f"[!] SIMKL add-to-list failed: HTTP {r.status_code} {r.text}" + ANSI_X)
-                    any_failure = True
-                else:
-                    added = len(simkl_add_payload.get("movies", [])) + len(simkl_add_payload.get("shows", []))
-                    if added:
-                        print(f"[✓] MIRROR(plex): added {added} to SIMKL")
-
-            rm_payload: Dict[str, List[dict]] = {}
-            if enable_remove and simkl_only_movies_keys:
-                rm_payload["movies"] = [{"ids": combine_ids(ids_by_key(simkl_idx, k))} for k in simkl_only_movies_keys]
-            if enable_remove and simkl_only_shows_keys:
-                rm_payload["shows"]  = [{"ids": combine_ids(ids_by_key(simkl_idx, k))} for k in simkl_only_shows_keys]
-            if rm_payload:
-                if debug: print(f"[debug] SIMKL remove payload (mirror/plex): {json.dumps(rm_payload, indent=2)}")
-                r = requests.post(SIMKL_HISTORY_REMOVE, headers=hdrs_simkl, json=rm_payload, timeout=45)
-                if not r.ok:
-                    print(ANSI_R + f"[!] SIMKL history/remove failed: HTTP {r.status_code} {r.text}" + ANSI_X)
-                    any_failure = True
-                else:
-                    removed = len(rm_payload.get("movies", [])) + len(rm_payload.get("shows", []))
-                    if removed:
-                        print(f"[✓] MIRROR(plex): removed {removed} from SIMKL")
-        else:
-            # Make Plex match SIMKL
-            added = removed = 0
-            if enable_add:
-                for k in simkl_only_movies_keys:
-                    if plex_add_by_ids(acct, ids_by_key(simkl_idx, k), "movie", debug=debug): added += 1
-                    else: any_failure = True
-                for k in simkl_only_shows_keys:
-                    if plex_add_by_ids(acct, ids_by_key(simkl_idx, k), "show", debug=debug): added += 1
-                    else: any_failure = True
-            if enable_remove:
-                for k in plex_only_movies_keys:
-                    if plex_remove_by_ids(acct, ids_by_key(plex_idx, k), "movie", debug=debug): removed += 1
-                    else: any_failure = True
-                for k in plex_only_shows_keys:
-                    if plex_remove_by_ids(acct, ids_by_key(plex_idx, k), "show", debug=debug): removed += 1
-                    else: any_failure = True
-            if added or removed:
-                print(f"[✓] MIRROR(simkl): +{added} / -{removed} on Plex")
-
-    else:
-        # One-way: Plex -> SIMKL
-        payload: Dict[str, List[dict]] = {}
-        if enable_add and (plex_only_movies_keys or plex_only_shows_keys):
-            if plex_only_movies_keys:
-                payload["movies"] = [{"to": "plantowatch", "ids": combine_ids(ids_by_key(plex_idx, k))} for k in plex_only_movies_keys]
-            if plex_only_shows_keys:
-                payload["shows"]  = [{"to": "plantowatch", "ids": combine_ids(ids_by_key(plex_idx, k))} for k in plex_only_shows_keys]
-            if debug: print(f"[debug] SIMKL add payload (one-way): {json.dumps(payload, indent=2)}")
-            r = requests.post(SIMKL_ADD_TO_LIST, headers=hdrs_simkl, json=payload, timeout=45)
-            if not r.ok:
-                print(ANSI_R + f"[!] SIMKL add-to-list failed: HTTP {r.status_code} {r.text}" + ANSI_X)
-                any_failure = True
-
-        if enable_remove and (simkl_only_movies_keys or simkl_only_shows_keys):
-            rm_payload: Dict[str, List[dict]] = {}
-            if simkl_only_movies_keys:
-                rm_payload["movies"] = [{"ids": combine_ids(ids_by_key(simkl_idx, k))} for k in simkl_only_movies_keys]
-            if simkl_only_shows_keys:
-                rm_payload["shows"]  = [{"ids": combine_ids(ids_by_key(simkl_idx, k))} for k in simkl_only_shows_keys]
-            if debug: print(f"[debug] SIMKL remove payload (one-way): {json.dumps(rm_payload, indent=2)}")
-            r = requests.post(SIMKL_HISTORY_REMOVE, headers=hdrs_simkl, json=rm_payload, timeout=45)
-            if not r.ok:
-                print(ANSI_R + f"[!] SIMKL history/remove failed: HTTP {r.status_code} {r.text}" + ANSI_X)
-                any_failure = True
-
-    # Post-check with short eventual-consistency window
-    equal_now, p_after, s_after = wait_for_eventual_consistency(
-        acct, plex_token, simkl_cfg, tries=3, delay=2.0, debug=debug
-    )
-    colored_postcheck(p_after, s_after)
-
-    # Save snapshot only if all actions succeeded AND counts match (after wait)
-    if any_failure:
-        print(ANSI_R + "[!] Some actions failed; NOT saving state." + ANSI_X)
-    elif equal_now:
-        save_state(STATE_PATH, snapshot_for_state(plex_idx, simkl_idx, curr_acts or prev_acts or {}))
-        if debug:
-            print("[debug] State updated.")
-    else:
-        print("[i] Counts still differ after a short wait; likely eventual consistency. "
-            "Not saving state; will re-check next run.")
-
+# ---- Main ----
+def main(host: str = "0.0.0.0", port: int = 8787) -> None:
+    ip = get_primary_ip()
+    print("\nPlex ⇄ SIMKL Web UI running:")
+    print(f"  Local:   http://127.0.0.1:{port}")
+    print(f"  Docker:  http://{ip}:{port}")
+    print(f"  Bind:    {host}:{port}")
+    print(f"  Config:  {CONFIG_PATH} ({'YAML' if CONFIG_PATH.suffix in ('.yml','.yaml') else 'JSON'})\n")
+    uvicorn.run(app, host=host, port=port)
 
 if __name__ == "__main__":
-    try:
-        main()
-    except KeyboardInterrupt:
-        print("\n[!] Aborted")
+    main()

@@ -19,10 +19,10 @@ import sys
 import threading
 import time
 import os
-import urllib.request
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+from contextlib import asynccontextmanager
 
 try:
     import yaml
@@ -51,8 +51,10 @@ from _auth_helper import (
     simkl_build_authorize_url,
     simkl_exchange_code,
 )
-from _TMDb import get_poster_file, get_meta
+# FIX: match filename _TMDB.py (capital B)
+from _TMDB import get_poster_file, get_meta
 from _FastAPI import get_index_html
+from _secheduling import SyncScheduler
 
 ROOT = Path(__file__).resolve().parent
 
@@ -94,16 +96,23 @@ DEFAULT_CFG: Dict[str, Any] = {
 
 # ---------- Config read/write ----------
 def _read_yaml(p: Path) -> Dict[str, Any]:
+    if not HAVE_YAML or yaml is None:
+        raise RuntimeError("YAML support not available")
     with p.open("r", encoding="utf-8") as f:
         return yaml.safe_load(f) or {}
+
 def _write_yaml(p: Path, data: Dict[str, Any]) -> None:
+    if not HAVE_YAML or yaml is None:
+        raise RuntimeError("YAML support not available")
     tmp = p.with_suffix(p.suffix + ".tmp")
     with tmp.open("w", encoding="utf-8") as f:
         yaml.safe_dump(data, f, sort_keys=False)
     tmp.replace(p)
+
 def _read_json(p: Path) -> Dict[str, Any]:
     with p.open("r", encoding="utf-8") as f:
         return json.load(f)
+
 def _write_json(p: Path, data: Dict[str, Any]) -> None:
     tmp = p.with_suffix(".tmp")
     with tmp.open("w", encoding="utf-8") as f:
@@ -497,14 +506,58 @@ def probe_simkl(cfg: Dict[str, Any], max_age_sec: int = 30) -> bool:
     _PROBE_CACHE["simkl"] = (now, ok)
     return ok
 
-def connected_status(cfg: Dict[str, Any]) -> tuple[bool, bool, bool]:
+def connected_status(cfg: Dict[str, Any]) -> Tuple[bool, bool, bool]:
     plex_ok = probe_plex(cfg)
     simkl_ok = probe_simkl(cfg)
     debug = bool(cfg.get("runtime", {}).get("debug"))
     return plex_ok, simkl_ok, debug
 
 # ---------- FastAPI ----------
-app = FastAPI(title="Plex ⇄ SIMKL Web UI")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # startup
+    try:
+        scheduler.ensure_defaults()
+        sch = (load_config().get("scheduling") or {})
+        if sch.get("enabled"):
+            scheduler.start()
+    except Exception:
+        # don't crash startup on scheduler issues
+        pass
+    try:
+        yield
+    finally:
+        try:
+            scheduler.stop()
+        except Exception:
+            pass
+
+app = FastAPI(lifespan=lifespan)
+
+# -------- Scheduler wiring --------
+def _is_sync_running() -> bool:
+    # Reuse RUNNING_PROCS["SYNC"] handle if present
+    p = RUNNING_PROCS.get("SYNC")
+    try:
+        return p is not None and (p.poll() is None)
+    except Exception:
+        return False
+
+def _start_sync_from_scheduler() -> bool:
+    # Start the same command as /api/run does, but only if not already running
+    if _is_sync_running():
+        return False
+    sync_script = ROOT / "plex_simkl_watchlist_sync.py"
+    if not sync_script.exists():
+        return False
+    cmd = [sys.executable, str(sync_script), "--sync"]
+    start_proc_detached(cmd, tag="SYNC")
+    return True
+
+# Instantiate scheduler with config callbacks
+scheduler = SyncScheduler(load_config, save_config, run_sync_fn=_start_sync_from_scheduler, is_sync_running_fn=_is_sync_running)
+
 INDEX_HTML = get_index_html()
 
 @app.get("/", response_class=HTMLResponse)
@@ -578,7 +631,8 @@ def oauth_simkl_callback(request: Request) -> PlainTextResponse:
         params = dict(request.query_params); code = params.get("code"); state = params.get("state")
         if not code or not state: return PlainTextResponse("Missing code or state.", status_code=400)
         if state != SIMKL_STATE.get("state"): return PlainTextResponse("State mismatch.", status_code=400)
-        redirect_uri = SIMKL_STATE.get("redirect_uri")
+        # Ensure redirect_uri is a string
+        redirect_uri = str(SIMKL_STATE.get("redirect_uri") or f"{request.base_url}callback")
         cfg = load_config(); simkl_cfg = cfg.setdefault("simkl", {})
         client_id = (simkl_cfg.get("client_id") or "").strip(); client_secret = (simkl_cfg.get("client_secret") or "").strip()
         bad_cid = (not client_id) or _is_placeholder(client_id, "YOUR_SIMKL_CLIENT_ID")
@@ -692,6 +746,28 @@ def api_tmdb_meta(typ: str = FPath(...), tmdb_id: int = FPath(...)) -> Dict[str,
         return {"ok": True, **meta}
     except Exception as e:
         return {"ok": False, "error": str(e)}
+
+# --- Scheduling API (single source of truth) ---
+@app.get("/api/scheduling")
+def api_sched_get():
+    cfg = load_config()
+    return (cfg.get("scheduling") or {})
+
+@app.post("/api/scheduling")
+def api_sched_post(payload: dict = Body(...)):
+    cfg = load_config()
+    cfg["scheduling"] = (payload or {})
+    save_config(cfg)
+    if (cfg["scheduling"] or {}).get("enabled"):
+        scheduler.start(); scheduler.refresh()
+    else:
+        scheduler.stop()
+    st = scheduler.status()
+    return {"ok": True, "next_run_at": st.get("next_run_at", 0)}
+
+@app.get("/api/scheduling/status")
+def api_sched_status():
+    return scheduler.status()
 
 # ---- Main ----
 def main(host: str = "0.0.0.0", port: int = 8787) -> None:

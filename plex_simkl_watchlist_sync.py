@@ -1,14 +1,5 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-Web UI backend (FastAPI) for Plex ⇄ SIMKL Watchlist Sync
 
-- Docker-aware config path (/config when running from /app)
-- Real connectivity probes for Plex & SIMKL
-- TMDb posters + genres + cache
-- Newest-first poster wall ordering
-- HTML imported from _FastAPI.get_index_html()
-"""
 
 import json
 import re

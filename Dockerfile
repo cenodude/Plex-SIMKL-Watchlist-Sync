@@ -1,7 +1,7 @@
 # ./Dockerfile
 FROM python:3.12-slim
 
-# Install dependencies
+# Install OS deps
 RUN apt-get update \
  && apt-get install -y --no-install-recommends cron tzdata \
  && rm -rf /var/lib/apt/lists/*
@@ -27,15 +27,15 @@ COPY _watchlist.py /app/
 RUN pip install --no-cache-dir --upgrade pip \
  && pip install --no-cache-dir plexapi requests fastapi uvicorn pydantic pillow
 
-# Copy scripts
+# Copy helper scripts
 COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
-COPY docker/run-sync.sh /usr/local/bin/run-sync.sh
+COPY docker/run-sync.sh   /usr/local/bin/run-sync.sh
 
-# Set executable permissions for scripts
+# Permissions + cron log
 RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/run-sync.sh \
  && touch /var/log/cron.log
 
-# Runtime environment variables
+# Default runtime configuration
 ENV TZ="Europe/Amsterdam" \
     RUNTIME_DIR="/config" \
     CRON_SCHEDULE="0 0 * * *" \
@@ -45,17 +45,17 @@ ENV TZ="Europe/Amsterdam" \
     INIT_CMD="python /app/plex_simkl_watchlist_sync.py --init-simkl redirect --bind 0.0.0.0:8787" \
     WEBINTERFACE="yes"
 
-# First-run OAuth environment variables
+# First-run OAuth environment variables (optional)
 ENV PLEX_ACCOUNT_TOKEN="" \
     SIMKL_CLIENT_ID="" \
     SIMKL_CLIENT_SECRET=""
 
-# Expose web interface port
+# Web UI port
 EXPOSE 8787
 
-# Persist config/state
+# Persist configuration/state
 VOLUME ["/config"]
 
-# Set the entrypoint
+# Entrypoint decides what to launch; by default we want the web interface.
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
-CMD ["cron", "-f"]
+CMD ["python", "/app/webapp.py", "--host", "0.0.0.0", "--port", "8787"]

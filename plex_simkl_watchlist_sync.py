@@ -50,7 +50,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from typing import Any, Sequence, Tuple, List, Dict, Set, Optional, NoReturn, cast
 
-__VERSION__ = "0.3.9"
+__VERSION__ = "0.4.0"
 
 # --- timestamped & colored print ---
 ANSI_DIM    = "\033[90m"  # grey
@@ -1223,7 +1223,7 @@ def main() -> None:
             if enable_remove and plex_removed_keys:
                 payload: Dict[str, List[dict]] = {"movies": [], "shows": []}
                 for k in plex_removed_keys:
-                    rec = (prev_plex_idx.get(k) or {})
+                    rec = prev_plex_idx.get(k, {})
                     if not rec:
                         continue
                     to = "movies" if rec.get("type") == "movie" else "shows"
@@ -1238,6 +1238,13 @@ def main() -> None:
                         any_failure = True
                     else:
                         removed_simkl += sum(len(v) for v in payload.values())
+
+                # Clear from SIMKL in state
+                for k in plex_removed_keys:
+                    simkl_idx.pop(k, None)  # Remove from SIMKL index in state
+                
+                # Save updated state after removal
+                save_state(STATE_PATH, snapshot_for_state(plex_idx, simkl_idx, curr_acts or prev_acts or {}))
 
             # SIMKL → Plex (adds)
             if enable_add and simkl_added_keys:

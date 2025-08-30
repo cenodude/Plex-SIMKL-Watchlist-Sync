@@ -47,7 +47,13 @@ docker pull ghcr.io/cenodude/plex-simkl-watchlist-sync:latest
 
 **2. Run the container:**
 ```bash
-docker run -d --name watchlist-sync   -p 8787:8787   -v "$PWD/config:/config"   -e TZ="Europe/Amsterdam"   ghcr.io/cenodude/plex-simkl-watchlist-sync:latest
+docker run -d \
+  --name watchlist-sync \
+  -p 8787:8787 \
+  -v "$PWD/config:/config" \
+  -e TZ="Europe/Amsterdam" \
+  -e WEBINTERFACE=yes \
+  ghcr.io/cenodude/plex-simkl-watchlist-sync:latest
 ```
 
 Alternatively, use **Docker-Compose** for easier management:
@@ -61,10 +67,11 @@ services:
     container_name: plex-simkl-sync
     environment:
       TZ: Europe/Amsterdam
+      WEBINTERFACE: yes
     volumes:
       - ./config:/config
     ports:
-      - "8787:8787"  # Exposed only for first-time OAuth
+      - "8787:8787"
     restart: unless-stopped
 ```
 

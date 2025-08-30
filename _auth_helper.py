@@ -76,7 +76,7 @@ def plex_poll_token(pin_id: int, headers: Dict[str, str], session: Optional[requ
         return token, False
     exp_iso = st_pin.get("expires_at")
     exp_epoch = _iso_to_epoch_utc(exp_iso) if isinstance(exp_iso, str) else 0
-    expired = exp_epoch and (exp_epoch - int(time.time()) <= 0)
+    expired = bool(exp_epoch and (exp_epoch - int(time.time()) <= 0))
     return None, expired
 
 def plex_wait_for_token(pin_id: int, headers: Dict[str, str], timeout_sec: int = 360, interval: float = 1.0) -> Optional[str]:

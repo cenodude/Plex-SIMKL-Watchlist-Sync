@@ -161,43 +161,92 @@ def _summary_reset() -> None:
     with SUMMARY_LOCK:
         SUMMARY.clear()
         SUMMARY.update({
-            "running": False, "started_at": None, "finished_at": None, "duration_sec": None,
-            "cmd": "", "version": "", "plex_pre": None, "simkl_pre": None,
-            "plex_post": None, "simkl_post": None, "result": "", "exit_code": None,
+            "running": False,
+            "started_at": None,
+            "finished_at": None,
+            "duration_sec": None,
+            "cmd": "",
+            "version": "",
+            "plex_pre": None,
+            "simkl_pre": None,
+            "plex_post": None,  # Ensure Plex Post-sync is initialized
+            "simkl_post": None,  # Ensure SIMKL Post-sync is initialized
+            "result": "",
+            "exit_code": None,
             "timeline": {"start": False, "pre": False, "post": False, "done": False},
             "raw_started_ts": None,
         })
 def _summary_set(k: str, v: Any) -> None:
-    with SUMMARY_LOCK: SUMMARY[k] = v
+    with SUMMARY_LOCK:
+        SUMMARY[k] = v
+
 def _summary_set_timeline(flag: str, value: bool = True) -> None:
-    with SUMMARY_LOCK: SUMMARY["timeline"][flag] = value
+    with SUMMARY_LOCK:
+        SUMMARY["timeline"][flag] = value
+
 def _summary_snapshot() -> Dict[str, Any]:
-    with SUMMARY_LOCK: return dict(SUMMARY)
+    with SUMMARY_LOCK:
+        # Return the summary with Post-sync counts included
+        return dict(SUMMARY)
+    
 def _parse_sync_line(line: str) -> None:
     s = strip_ansi(line).strip()
+
+    # Match sync start
     m = re.match(r"^> SYNC start:\s+(?P<cmd>.+)$", s)
     if m:
         if not SUMMARY.get("running"):
-            _summary_set("running", True); SUMMARY["raw_started_ts"] = time.time()
+            _summary_set("running", True)
+            SUMMARY["raw_started_ts"] = time.time()
             _summary_set("started_at", datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"))
-        _summary_set("cmd", m.group("cmd")); _summary_set_timeline("start", True); return
+        _summary_set("cmd", m.group("cmd"))
+        _summary_set_timeline("start", True)
+        return
+
+    # Match version
     m = re.search(r"Version\s+(?P<ver>[0-9][0-9A-Za-z\.\-\+_]*)", s)
-    if m: _summary_set("version", m.group("ver")); return
+    if m:
+        _summary_set("version", m.group("ver"))
+        return
+
+    # Match Pre-sync counts (if necessary)
     m = re.search(r"Pre-sync counts:\s+Plex=(?P<pp>\d+)\s+vs\s+SIMKL=(?P<sp>\d+)\s+\((?P<rel>[^)]+)\)", s)
-    if m: _summary_set("plex_pre", int(m.group("pp"))); _summary_set("simkl_pre", int(m.group("sp"))); _summary_set_timeline("pre", True); return
+    if m:
+        _summary_set("plex_pre", int(m.group("pp")))
+        _summary_set("simkl_pre", int(m.group("sp")))
+        _summary_set_timeline("pre", True)
+        return
+
+    # Match Post-sync counts
     m = re.search(r"Post-sync:\s+Plex=(?P<pa>\d+)\s+vs\s+SIMKL=(?P<sa>\d+)\s*(?:→|->)\s*(?P<res>[A-Z]+)", s)
-    if m: _summary_set("plex_post", int(m.group("pa"))); _summary_set("simkl_post", int(m.group("sa"))); _summary_set("result", m.group("res")); _summary_set_timeline("post", True); return
+    if m:
+        _summary_set("plex_post", int(m.group("pa")))  # Store Post-sync Plex count
+        _summary_set("simkl_post", int(m.group("sa")))  # Store Post-sync SIMKL count
+        _summary_set("result", m.group("res"))  # Store the result (EQUAL or others)
+        _summary_set_timeline("post", True)
+        return
+
+    # Match exit code
     m = re.search(r"\[SYNC\]\s+exit code:\s+(?P<code>\d+)", s)
     if m:
-        code = int(m.group("code")); _summary_set("exit_code", code)
+        code = int(m.group("code"))
+        _summary_set("exit_code", code)
         started = SUMMARY.get("raw_started_ts")
         if started:
-            dur = max(0.0, time.time()-float(started)); _summary_set("duration_sec", round(dur,2))
-        _summary_set("finished_at", datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")); _summary_set("running", False); _summary_set_timeline("done", True)
+            dur = max(0.0, time.time() - float(started))
+            _summary_set("duration_sec", round(dur, 2))
+        _summary_set("finished_at", datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"))
+        _summary_set("running", False)
+        _summary_set_timeline("done", True)
+
+        # Save the summary to a file
         try:
-            ts = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S"); path = REPORT_DIR / f"sync-{ts}.json"
-            with path.open("w", encoding="utf-8") as f: json.dump(_summary_snapshot(), f, indent=2)
-        except Exception: pass
+            ts = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+            path = REPORT_DIR / f"sync-{ts}.json"
+            with path.open("w", encoding="utf-8") as f:
+                json.dump(_summary_snapshot(), f, indent=2)
+        except Exception:
+            pass
 
 def _stream_proc(cmd: List[str], tag: str) -> None:
     try:
@@ -687,13 +736,29 @@ def oauth_simkl_callback(request: Request) -> PlainTextResponse:
 @app.post("/api/run")
 def api_run_sync() -> Dict[str, Any]:
     sync_script = ROOT / "plex_simkl_watchlist_sync.py"
-    if not sync_script.exists(): return {"ok": False, "error": "plex_simkl_watchlist_sync.py not found"}
+    if not sync_script.exists():
+        return {"ok": False, "error": "plex_simkl_watchlist_sync.py not found"}
+
     with SYNC_PROC_LOCK:
         if "SYNC" in RUNNING_PROCS and RUNNING_PROCS["SYNC"].poll() is None:
             return {"ok": False, "error": "Sync already running"}
+        
+        # Start the sync process
         cmd = [sys.executable, str(sync_script), "--sync"]
         start_proc_detached(cmd, tag="SYNC")
+        
+        # Notify frontend to refresh the Watchlist Preview
+        # This could be done by setting a flag or calling a function to refresh the UI.
+        refresh_watchlist_preview()  # This is where you can trigger the refresh
+
         return {"ok": True}
+
+def refresh_watchlist_preview():
+    # Trigger a refresh of the Watchlist Preview on the frontend
+    # This could send a response to the frontend, or you can call a JavaScript function via SSE/WebSocket
+    # Example: Notify frontend to reload the watchlist grid
+    print("Triggering refresh of the watchlist preview")
+
 
 @app.get("/api/run/summary")
 def api_run_summary() -> JSONResponse:

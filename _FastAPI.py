@@ -587,20 +587,57 @@ def get_index_html() -> str:
   }
 
   function toggleSection(id){ document.getElementById(id).classList.toggle('open'); }
-  function setBusy(v){ busy=v; document.getElementById('run').disabled = v; }
+  function setBusy(v){
+  busy = v;
+  recomputeRunDisabled();
+}
+
+
+// Global UI snapshot
+window._ui = { status: null, summary: null };
+
+// The only place that decides whether the Run button is disabled
+function recomputeRunDisabled() {
+  const btn = document.getElementById('run');
+  if (!btn) return;
+
+  const busyNow = !!window.busy;
+  const canRun = !(window._ui?.status) ? true : !!window._ui.status.can_run;
+  const running = !!(window._ui?.summary && window._ui.summary.running);
+
+  btn.disabled = busyNow || running || !canRun;
+}
   
 //FIX ... I HOPE THIS WORKS
   async function runSync(){
-    if(busy) return;
-    setBusy(true);
-    try{
-      await fetch('/api/run', { method:'POST' });
-      if(!esSum){ openSummaryStream(); }
-    }catch(e){ console.warn(e); }
-    finally{
-      refreshStatus();
+  if (busy) return;
+
+  const btn = document.getElementById('run');
+  setBusy(true);
+  try { btn?.classList.add('glass'); } catch(_){}
+
+  try{
+    // Belangrijk: géén saveSettings() hier — sync moet los staan van UI-settings
+    const resp = await fetch('/api/run', { method:'POST' });
+    const j = await resp.json().catch(()=>null);
+
+    if (!resp.ok || !j || j.ok !== true){
+      // UI laten zien dat starten niet lukte
+      setSyncHeader('sync-bad', `Failed to start${j?.error ? ` – ${j.error}` : ''}`);
+    } else {
+      // Zorg dat we running/finished via SSE oppikken
+      if (!esSum) { openSummaryStream(); }
     }
+  } catch (e){
+    setSyncHeader('sync-bad', 'Failed to reach server');
+  } finally {
+    // Busy direct vrijgeven; disabled state wordt door SSE/summary geregeld
+    setBusy(false);
+    if (typeof recomputeRunDisabled === 'function') recomputeRunDisabled();
+    // Status even verversen (kan can_run wijzigen)
+    refreshStatus();
   }
+}
 
 function logHTML(t){ const el=document.getElementById('log'); el.innerHTML += t + "<br>"; el.scrollTop = el.scrollHeight; }
 
@@ -620,25 +657,45 @@ function logHTML(t){ const el=document.getElementById('log'); el.innerHTML += t 
   }
 
   function renderSummary(sum){
-    currentSummary = sum;
-    const pp = sum.plex_post ?? sum.plex_pre;
-    const sp = sum.simkl_post ?? sum.simkl_pre;
-    document.getElementById('chip-plex').textContent = (pp ?? '–');
-    document.getElementById('chip-simkl').textContent = (sp ?? '–');
-    document.getElementById('chip-dur').textContent = sum.duration_sec != null ? (sum.duration_sec + 's') : '–';
-    document.getElementById('chip-exit').textContent = sum.exit_code != null ? String(sum.exit_code) : '–';
+  currentSummary = sum;
 
-    if(sum.running){ setSyncHeader('sync-warn', 'Running…'); }
-    else if(sum.exit_code === 0){ setSyncHeader('sync-ok', (sum.result||'').toUpperCase()==='EQUAL' ? 'In sync ✅' : 'Synced ✅'); }
-    else if(sum.exit_code != null){ setSyncHeader('sync-bad', 'Attention needed ⚠️'); }
-    else { setSyncHeader('sync-warn', 'Idle — run a sync to see results'); }
+  // <-- NIEUW: snapshot voor centrale disabled-logica
+  window._ui = window._ui || {};
+  window._ui.summary = sum;
 
-    document.getElementById('det-cmd').textContent = sum.cmd || '–';
-    document.getElementById('det-ver').textContent = sum.version || '–';
-    document.getElementById('det-start').textContent = sum.started_at || '–';
-    document.getElementById('det-finish').textContent = sum.finished_at || '–';
-    setTimeline(sum.timeline || {});
+  const pp = sum.plex_post ?? sum.plex_pre;
+  const sp = sum.simkl_post ?? sum.simkl_pre;
+  document.getElementById('chip-plex').textContent = (pp ?? '–');
+  document.getElementById('chip-simkl').textContent = (sp ?? '–');
+  document.getElementById('chip-dur').textContent = sum.duration_sec != null ? (sum.duration_sec + 's') : '–';
+  document.getElementById('chip-exit').textContent = sum.exit_code != null ? String(sum.exit_code) : '–';
+
+  if (sum.running){
+    setSyncHeader('sync-warn', 'Running…');
+  } else if (sum.exit_code === 0){
+    setSyncHeader('sync-ok', (sum.result||'').toUpperCase()==='EQUAL' ? 'In sync ✅' : 'Synced ✅');
+  } else if (sum.exit_code != null){
+    setSyncHeader('sync-bad', 'Attention needed ⚠️');
+  } else {
+    setSyncHeader('sync-warn', 'Idle — run a sync to see results');
   }
+
+  document.getElementById('det-cmd').textContent = sum.cmd || '–';
+  document.getElementById('det-ver').textContent = sum.version || '–';
+  document.getElementById('det-start').textContent = sum.started_at || '–';
+  document.getElementById('det-finish').textContent = sum.finished_at || '–';
+  setTimeline(sum.timeline || {});
+
+  // <-- NIEUW: knop-UI consistent houden
+  const btn = document.getElementById('run');
+  if (btn){
+    if (sum.running) btn.classList.add('glass');
+    else btn.classList.remove('glass');
+  }
+  // disabled-toestand op 1 plek bepalen
+  if (typeof recomputeRunDisabled === 'function') recomputeRunDisabled();
+}
+
 
   function openSummaryStream(){
     esSum = new EventSource('/api/run/summary/stream');
@@ -671,7 +728,10 @@ function logHTML(t){ const el=document.getElementById('log'); el.innerHTML += t 
     pb.innerHTML = `<span class="dot ${r.plex_connected?'ok':'no'}"></span>Plex: ${r.plex_connected?'Connected':'Not connected'}`;
     sb.className = 'badge ' + (r.simkl_connected?'ok':'no');
     sb.innerHTML = `<span class="dot ${r.simkl_connected?'ok':'no'}"></span>SIMKL: ${r.simkl_connected?'Connected':'Not connected'}`;
-    document.getElementById('run').disabled = !(r.can_run) || busy;
+    window._ui.status = {can_run: !!r.can_run,plex_connected: !!r.plex_connected,simkl_connected: !!r.simkl_connected};
+
+    recomputeRunDisabled();
+
     const onMain = !document.getElementById('ops-card').classList.contains('hidden');
     const logPanel = document.getElementById('log-panel'); const layout = document.getElementById('layout');
     logPanel.classList.toggle('hidden', !(appDebug && onMain)); layout.classList.toggle('full', onMain && !appDebug);

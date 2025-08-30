@@ -1,6 +1,7 @@
 # _FastAPI.py
 # Exports the full HTML for the FastAPI index page.
 
+
 def get_index_html() -> str:
     return r"""<!doctype html><html><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
@@ -431,13 +432,13 @@ def get_index_html() -> str:
     </div>
     <div id="wall-msg" class="wall-msg">Loading…</div>
   </section>
-
-  <!-- WATCHLIST (grid) -->
+  <!-- WATCHLIST (grid, not carousel) -->
   <section id="page-watchlist" class="card hidden">
     <div class="title">Watchlist</div>
     <div id="wl-msg" class="wall-msg">Loading…</div>
     <div id="wl-grid" class="wl-grid hidden"></div>
   </section>
+
 
   <!-- SETTINGS -->
   <section id="page-settings" class="card hidden">
@@ -572,12 +573,6 @@ def get_index_html() -> str:
 </main>
 
 <script>
-  // Function to update the watchlist preview
-  async function updateWatchlistPreview() {
-    // Call the loadWatchlist function to reload the updated posters
-    await loadWatchlist();
-  }
-
   // Listen for changes in localStorage (other browsers)
   window.addEventListener('storage', (event) => {
     if (event.key === 'wl_hidden') {
@@ -642,6 +637,8 @@ def get_index_html() -> str:
     recomputeRunDisabled();
   }
 
+
+
 // Global UI snapshot
 window._ui = { status: null, summary: null };
 
@@ -658,32 +655,35 @@ function recomputeRunDisabled() {
 }
   
 //FIX ... I HOPE THIS WORKS
-  async function runSync() {
-      if (busy) return;
+  async function runSync(){
+  if (busy) return;
 
-      const btn = document.getElementById('run');
-      setBusy(true);
-      try { btn?.classList.add('glass'); } catch(_){}
+  const btn = document.getElementById('run');
+  setBusy(true);
+  try { btn?.classList.add('glass'); } catch(_){}
 
-      try {
-          const resp = await fetch('/api/run', { method: 'POST' });
-          const j = await resp.json();
+  try{
+    // Belangrijk: géén saveSettings() hier — sync moet los staan van UI-settings
+    const resp = await fetch('/api/run', { method:'POST' });
+    const j = await resp.json().catch(()=>null);
 
-          if (!resp.ok || !j || j.ok !== true) {
-              setSyncHeader('sync-bad', `Failed to start${j?.error ? ` – ${j.error}` : ''}`);
-          } else {
-              // After sync completes, update the watchlist
-              updateWatchlistPreview();  // This will trigger the refresh of the Watchlist Preview
-          }
-      } catch (e) {
-          setSyncHeader('sync-bad', 'Failed to reach server');
-      } finally {
-          setBusy(false);
-          recomputeRunDisabled();
-          refreshStatus();
-      }
+    if (!resp.ok || !j || j.ok !== true){
+      // UI laten zien dat starten niet lukte
+      setSyncHeader('sync-bad', `Failed to start${j?.error ? ` – ${j.error}` : ''}`);
+    } else {
+      // Zorg dat we running/finished via SSE oppikken
+      if (!esSum) { openSummaryStream(); }
+    }
+  } catch (e){
+    setSyncHeader('sync-bad', 'Failed to reach server');
+  } finally {
+    // Busy direct vrijgeven; disabled state wordt door SSE/summary geregeld
+    setBusy(false);
+    if (typeof recomputeRunDisabled === 'function') recomputeRunDisabled();
+    // Status even verversen (kan can_run wijzigen)
+    refreshStatus();
   }
-
+}
 
 function logHTML(t){ const el=document.getElementById('log'); el.innerHTML += t + "<br>"; el.scrollTop = el.scrollHeight; }
 
@@ -1160,119 +1160,90 @@ function logHTML(t){ const el=document.getElementById('log'); el.innerHTML += t 
   }
 
   async function loadWatchlist() {
-      const grid = document.getElementById('wl-grid');
-      const msg = document.getElementById('wl-msg');
+    const grid = document.getElementById('wl-grid');
+    const msg = document.getElementById('wl-msg');
+    grid.innerHTML = ''; grid.classList.add('hidden'); msg.textContent = 'Loading…'; msg.classList.remove('hidden');
 
-      // Reset grid and show loading message
-      grid.innerHTML = ''; 
-      grid.classList.add('hidden'); 
-      msg.textContent = 'Loading…'; 
-      msg.classList.remove('hidden');
+    try {
+      const data = await fetch('/api/watchlist').then(r => r.json());
+      if (data.missing_tmdb_key) { msg.textContent = 'Set a TMDb API key to see posters.'; return; }
+      if (!data.ok) { msg.textContent = data.error || 'No state data found.'; return; }
+      const items = data.items || [];
+      if (items.length === 0) { msg.textContent = 'No items on your watchlist yet.'; return; }
 
-      try {
-          // Fetch the watchlist data from the API
-          const data = await fetch('/api/watchlist').then(r => r.json());
+      msg.classList.add('hidden'); grid.classList.remove('hidden');
 
-          // Debugging: Log fetched data
-          console.log("Fetched Watchlist Data:", data);
+      for (const it of items) {
+        const url = artUrl(it, 'w342');
 
-          if (data.missing_tmdb_key) {
-              msg.textContent = 'Set a TMDb API key to see posters.';
-              return;
+        // Create the poster container
+        const node = document.createElement('div');
+        node.className = 'wl-poster poster';
+        node.dataset.key = it.key;
+        node.dataset.type = it.type === 'tv' || it.type === 'show' ? 'tv' : 'movie';
+        node.dataset.tmdb = String(it.tmdb || '');
+        node.dataset.status = it.status;
+
+        // Check if the item is marked as deleted
+        const isDeleted = (key) => {
+          const hidden = new Set(JSON.parse(localStorage.getItem('wl_hidden') || '[]'));
+          return hidden.has(key);
+        };
+
+        // Set the pill text based on the item status
+        const pillText = it.status === 'both' ? 'SYNCED' : (it.status === 'plex_only' ? 'PLEX' : 'SIMKL');
+        const pillClass = it.status === 'both' ? 'p-syn' : (it.status === 'plex_only' ? 'p-px' : 'p-sk');
+
+        node.innerHTML = `
+          <img alt="" src="${url || ''}" onerror="this.style.display='none'">
+          <div class="wl-del pill p-del" role="button" tabindex="0"
+              title="Delete from Plex"
+              onclick="deletePoster(event, '${encodeURIComponent(it.key)}', this)">
+              Delete
+          </div>
+
+          <div class="wl-ovr ovr">
+            <span class="pill ${pillClass}">${pillText}</span>
+          </div>
+
+          <div class="wl-cap cap">${(it.title || '').replace(/"/g,'&quot;')} ${it.year ? '· ' + it.year : ''}</div>
+
+          <div class="wl-hover hover">
+            <div class="titleline">${(it.title || '')}</div>
+            <div class="meta">
+              <div class="chip src">${it.status === 'both' ? 'Source: Synced' : (it.status === 'plex_only' ? 'Source: Plex' : 'Source: SIMKL')}</div>
+              <div class="chip time">${relTimeFromEpoch(it.added_epoch)}</div>
+            </div>
+            <div class="desc" id="wldesc-${node.dataset.type}-${node.dataset.tmdb}">${it.tmdb ? 'Fetching description…' : '—'}</div>
+          </div>
+        `;
+
+        // If the item is deleted, update the pill to show DELETED
+        if (isDeleted(it.key)) {
+          const pill = node.querySelector('.pill');
+          pill.textContent = 'DELETED';  // Change pill to DELETED
+          pill.classList.add('p-del');   // Apply 'DELETED' styling
+        }
+
+        // Description lazy loading for hover
+        node.addEventListener('mouseenter', async () => {
+          const descEl = document.getElementById(`wldesc-${it.type}-${it.tmdb}`);
+          if (!descEl || descEl.dataset.loaded) return;
+          try {
+            const meta = await fetch(`/api/tmdb/meta/${it.type}/${it.tmdb}`).then(r => r.json());
+            descEl.textContent = meta?.overview || '—';
+            descEl.dataset.loaded = '1';
+          } catch {
+            descEl.textContent = '—';
+            descEl.dataset.loaded = '1';
           }
+        }, { passive: true });
 
-          if (!data.ok) {
-              msg.textContent = data.error || 'No state data found.';
-              return;
-          }
-
-          const items = data.items || [];
-          if (items.length === 0) {
-              msg.textContent = 'No items on your watchlist yet.';
-              return;
-          }
-
-          // Hide loading message and show grid
-          msg.classList.add('hidden'); 
-          grid.classList.remove('hidden');
-
-          // Loop through each item and create the DOM elements
-          for (const it of items) {
-              console.log("Item:", it);  // Log each item for verification
-
-              if (!it.tmdb) continue;
-
-              // Create poster container
-              const node = document.createElement('div');
-              node.className = 'wl-poster poster';
-              node.dataset.key = it.key;
-              node.dataset.type = it.type === 'tv' || it.type === 'show' ? 'tv' : 'movie';
-              node.dataset.tmdb = String(it.tmdb || '');
-              node.dataset.status = it.status;
-
-              // Check if the item is marked as deleted
-              const isDeleted = (key) => {
-                  const hidden = new Set(JSON.parse(localStorage.getItem('wl_hidden') || '[]'));
-                  return hidden.has(key);
-              };
-
-              // Set the pill text based on the item status
-              const pillText = it.status === 'both' ? 'SYNCED' : (it.status === 'plex_only' ? 'PLEX' : 'SIMKL');
-              const pillClass = it.status === 'both' ? 'p-syn' : (it.status === 'plex_only' ? 'p-px' : 'p-sk');
-
-              // Build the inner HTML for the poster
-              node.innerHTML = `
-                  <img alt="" src="${artUrl(it, 'w342') || ''}" onerror="this.style.display='none'">
-                  <div class="wl-del pill p-del" role="button" tabindex="0"
-                      title="Delete from Plex"
-                      onclick="deletePoster(event, '${encodeURIComponent(it.key)}', this)">
-                      Delete
-                  </div>
-
-                  <div class="wl-ovr ovr">
-                      <span class="pill ${pillClass}">${pillText}</span>
-                  </div>
-
-                  <div class="wl-cap cap">${(it.title || '').replace(/"/g, '&quot;')} ${it.year ? '· ' + it.year : ''}</div>
-
-                  <div class="wl-hover hover">
-                      <div class="titleline">${(it.title || '')}</div>
-                      <div class="meta">
-                          <div class="chip src">${it.status === 'both' ? 'Source: Synced' : (it.status === 'plex_only' ? 'Source: Plex' : 'Source: SIMKL')}</div>
-                          <div class="chip time">${relTimeFromEpoch(it.added_epoch)}</div>
-                      </div>
-                      <div class="desc" id="wldesc-${node.dataset.type}-${node.dataset.tmdb}">${it.tmdb ? 'Fetching description…' : '—'}</div>
-                  </div>
-              `;
-
-              // If the item is deleted, update the pill to show 'DELETED'
-              if (isDeleted(it.key)) {
-                  const pill = node.querySelector('.pill');
-                  pill.textContent = 'DELETED';  // Change pill to 'DELETED'
-                  pill.classList.add('p-del');   // Apply 'DELETED' styling
-              }
-
-              // Description lazy loading for hover
-              node.addEventListener('mouseenter', async () => {
-                  const descEl = document.getElementById(`wldesc-${it.type}-${it.tmdb}`);
-                  if (!descEl || descEl.dataset.loaded) return;
-                  try {
-                      const meta = await fetch(`/api/tmdb/meta/${it.type}/${it.tmdb}`).then(r => r.json());
-                      descEl.textContent = meta?.overview || '—';
-                      descEl.dataset.loaded = '1';
-                  } catch {
-                      descEl.textContent = '—';
-                      descEl.dataset.loaded = '1';
-                  }
-              }, { passive: true });
-
-              // Append the item to the grid
-              grid.appendChild(node);
-          }
-      } catch (error) {
-          console.error('Error loading watchlist:', error);
-          msg.textContent = 'Failed to load preview.';
+        grid.appendChild(node);
       }
+    } catch (_) {
+      msg.textContent = 'Failed to load.';
+    }
   }
 
   async function deletePoster(ev, encKey, btnEl) {

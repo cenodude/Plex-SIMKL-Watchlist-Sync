@@ -18,6 +18,7 @@ import urllib.request
 import urllib.error
 import urllib.parse
 from _watchlist import build_watchlist, delete_watchlist_item
+from _FastAPI import get_index_html
 
 from datetime import datetime, timezone
 from pathlib import Path
@@ -42,7 +43,6 @@ from _auth_helper import (
     simkl_exchange_code,
 )
 from _TMDB import get_poster_file, get_meta
-from _FastAPI import get_index_html
 from _scheduling import SyncScheduler
 
 ROOT = Path(__file__).resolve().parent
@@ -553,6 +553,17 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 
+@app.middleware("http")
+async def cache_headers_for_api(request: Request, call_next):
+    resp = await call_next(request)
+    # Never cache JSON/API responses in the browser
+    if request.url.path.startswith("/api/"):
+        resp.headers["Cache-Control"] = "no-store"
+        # Optional: also kill intermediary cache
+        resp.headers["Pragma"] = "no-cache"
+        resp.headers["Expires"] = "0"
+    return resp
+
 # --- Watchlist API (grid page) ---
 @app.get("/api/watchlist")
 def api_watchlist() -> JSONResponse:
@@ -830,7 +841,16 @@ def api_tmdb_art(typ: str = FPath(...), tmdb_id: int = FPath(...), size: str = Q
         return PlainTextResponse("TMDb key missing", status_code=404)
     try:
         local_path, mime = get_poster_file(api_key, typ, tmdb_id, size, CACHE_DIR)
-        return FileResponse(path=str(local_path), media_type=mime)
+        return FileResponse(
+            path=str(local_path),
+            media_type=mime,
+            headers={
+                # prevent browsers from reusing stale posters
+                "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+                "Pragma": "no-cache",
+                "Expires": "0",
+            },
+        )
     except Exception as e:
         return PlainTextResponse(f"Poster not available: {e}", status_code=404)
 

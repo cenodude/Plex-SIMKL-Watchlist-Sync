@@ -75,6 +75,9 @@ def get_index_html() -> str:
   main.single{grid-template-columns:1fr}
   #ops-card{grid-column:1} #placeholder-card{grid-column:1} #log-panel{grid-column:2; align-self:start}
 
+  /* Hide the title captions under posters */
+  .cap, .wl-cap { display: none !important; }
+
   /* Reuse carousel visuals on the Watchlist grid items */
   .wl-poster.poster { /* combineert grid en poster styles */ }
   .wl-poster .wl-ovr.ovr { /* alias: zelfde pill-styling als carrousel */ }
@@ -126,7 +129,42 @@ def get_index_html() -> str:
   .ops-header{display:flex;align-items:center;gap:12px}
   .ops-header .badges{margin-left:auto}
   .sync-status{display:flex;align-items:center;gap:10px;margin:8px 0 4px}
-  .sync-icon{width:14px;height:14px;border-radius:50%;box-shadow:0 0 12px #000 inset}
+
+  .sync-icon{
+    width:15px;
+    height:15px;
+    border-radius:50%;
+    flex-shrink:0;
+    position: relative;
+    top: -5px;
+  }
+
+  .sync-status{
+  display:flex;
+  align-items:center;
+  gap:8px;
+}
+
+  .sync-icon.sync-warn{
+    background:#ffc400;
+    box-shadow:0 0 12px #ffc40088, 0 0 24px #ffc40044;
+    animation: pulseWarn 1.6s infinite ease-in-out;
+  }
+  @keyframes pulseWarn {
+    0%,100% { transform:scale(1); opacity:1; }
+    50% { transform:scale(1.15); opacity:0.8; }
+  }
+
+  .sync-icon.sync-bad{
+    background:#ff4d4f;
+    box-shadow:0 0 12px #ff4d4f88, 0 0 24px #ff4d4f44;
+    animation: pulseBad 1.2s infinite ease-in-out;
+  }
+  @keyframes pulseBad {
+    0%,100% { transform:scale(1); }
+    50% { transform:scale(1.2); }
+  }
+
   .sync-ok{background:var(--accent2)} .sync-warn{background:#ffc400} .sync-bad{background:#ff4d4f}
   .chiprow{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0}
   .chip{border:1px solid var(--border);background:#0a0a17;padding:6px 10px;border-radius:999px;color:#e7e9f4}
@@ -379,13 +417,13 @@ def get_index_html() -> str:
     </div>
 
     <!-- Scheduler banner (compact, only visible when enabled) -->
-    <div id="schedBanner" class="msg ok" style="display:none; width:auto; max-width:100%;">Scheduler is <b>running</b> • next run: <b id="schedNext">—</b></div>
+    <!-- <div id="schedBanner" class="msg ok" style="display:none; width:auto; max-width:100%;">Scheduler is <b>running</b> • next run: <b id="schedNext">—</b></div> -->
 
-    <div id="sync-card">
-      <div class="sync-status">
-        <div id="sync-icon" class="sync-icon sync-warn"></div>
-        <div id="sync-status-text" class="sub">Idle — run a sync to see results</div>
-      </div>
+    <div class="sync-status">
+      <div id="sync-icon" class="sync-icon sync-warn"></div>
+      <div id="sync-status-text" class="sub">Idle — run a sync to see results</div>
+      <span id="sched-inline" class="sub muted" style="margin-left:8px; white-space:nowrap; display:none"></span>
+    </div>
 
       <div class="chiprow">
         <div class="chip">Plex: <span id="chip-plex">–</span></div>
@@ -721,7 +759,7 @@ function logHTML(t){ const el=document.getElementById('log'); el.innerHTML += t 
   if (sum.running){
     setSyncHeader('sync-warn', 'Running…');
   } else if (sum.exit_code === 0){
-    setSyncHeader('sync-ok', (sum.result||'').toUpperCase()==='EQUAL' ? 'In sync ✅' : 'Synced ✅');
+    setSyncHeader('sync-ok', (sum.result||'').toUpperCase()==='EQUAL' ? 'In sync ' : 'Synced ');
   } else if (sum.exit_code != null){
     setSyncHeader('sync-bad', 'Attention needed ⚠️');
   } else {
@@ -893,21 +931,26 @@ function logHTML(t){ const el=document.getElementById('log'); el.innerHTML += t 
   }
 
   function refreshSchedulingBanner(){
-    fetch('/api/scheduling/status').then(r=>r.json()).then(j=>{
-      const b = document.getElementById('schedBanner');
-      if(!b) return;
-      if(j && j.config && j.config.enabled){
-        b.style.display = 'inline-block';
-        const nextRun = (j.next_run_at ? new Date(j.next_run_at*1000).toLocaleString() : '—');
-        b.querySelector('#schedNext')?.replaceWith((()=>{ const x=document.createElement('b'); x.id='schedNext'; x.textContent=nextRun; return x; })());
-      }else{
-        b.style.display = 'none';
-      }
-    }).catch(()=>{
-      const b = document.getElementById('schedBanner');
-      if(b) b.style.display = 'none';
-    });
+    fetch('/api/scheduling/status')
+      .then(r => r.json())
+      .then(j => {
+        const span = document.getElementById('sched-inline');
+        if (!span) return;
+        if (j && j.config && j.config.enabled) {
+          const nextRun = j.next_run_at ? new Date(j.next_run_at*1000).toLocaleString() : '—';
+          span.textContent = `-   Scheduler running (next ${nextRun})`;
+          span.style.display = 'inline';
+        } else {
+          span.textContent = '';
+          span.style.display = 'none';
+        }
+      })
+      .catch(() => {
+        const span = document.getElementById('sched-inline');
+        if (span){ span.textContent = ''; span.style.display = 'none'; }
+      });
   }
+
 
   // ---- Troubleshoot actions ----
   async function clearState(){
@@ -1082,7 +1125,7 @@ function logHTML(t){ const el=document.getElementById('log'); el.innerHTML += t 
         const img = document.createElement('img');
         img.loading = 'lazy'; 
         img.alt = `${it.title || ''} (${it.year || ''})`;
-        img.src = `/art/tmdb/${it.type}/${it.tmdb}?size=w342`;
+        img.src = artUrl(it, 'w342');
         a.appendChild(img);
 
         const ovr = document.createElement('div'); 
@@ -1128,7 +1171,8 @@ function logHTML(t){ const el=document.getElementById('log'); el.innerHTML += t 
           const descEl = document.getElementById(`desc-${it.type}-${it.tmdb}`);
           if (!descEl || descEl.dataset.loaded) return;
           try {
-            const meta = await fetch(`/api/tmdb/meta/${it.type}/${it.tmdb}`).then(r => r.json());
+            const cb = window._lastSyncEpoch || 0;
+            const meta = await fetch(`/api/tmdb/meta/${it.type}/${it.tmdb}?cb=${cb}`).then(r => r.json());
             descEl.textContent = meta?.overview || '—';
             descEl.dataset.loaded = '1';
           } catch {
@@ -1147,10 +1191,11 @@ function logHTML(t){ const el=document.getElementById('log'); el.innerHTML += t 
 
   // ---- Watchlist helpers ----
   function artUrl(item, size){
-    const typ = (item.type === 'tv' || item.type === 'show') ? 'tv' : 'movie';
+    const typ  = (item.type === 'tv' || item.type === 'show') ? 'tv' : 'movie';
     const tmdb = item.tmdb;
     if(!tmdb) return null;
-    return `/art/tmdb/${typ}/${tmdb}?size=${encodeURIComponent(size || 'w342')}`;
+    const cb = window._lastSyncEpoch || 0;          // changes after each sync
+    return `/art/tmdb/${typ}/${tmdb}?size=${encodeURIComponent(size || 'w342')}&cb=${cb}`;
   }
 
   function relTimeFromEpoch(epoch){

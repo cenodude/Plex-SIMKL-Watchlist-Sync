@@ -449,7 +449,7 @@ def get_index_html() -> str:
         <div class="grid2">
           <div><label>Mode</label><select id="mode"><option value="two-way">two-way</option><option value="mirror">mirror</option></select></div>
           <div><label>Source of truth (mirror only)</label><select id="source"><option value="plex">plex</option><option value="simkl">simkl</option></select></div>
-          <div><label>Debug</label><select id="debug"><option value="false">off</option><option value="true">on</option></select></div>
+          
         </div>
       </div>
     </div>
@@ -484,6 +484,7 @@ def get_index_html() -> str:
       <div class="head" onclick="toggleSection('sec-troubleshoot')"><span class="chev">▶</span><strong>Troubleshoot</strong></div>
       <div class="body">
         <div class="sub">Use these actions to fix common issues. They are safe but cannot be undone.</div>
+        <div><label>Debug</label><select id="debug"><option value="false">off</option><option value="true">on</option></select></div>
         <div class="chiprow">
           <button class="btn danger" onclick="clearState()">Clear State</button>
           <button class="btn danger" onclick="clearCache()">Clear Cache</button>

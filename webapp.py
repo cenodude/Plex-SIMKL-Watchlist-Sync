@@ -43,7 +43,7 @@ from _auth_helper import (
 )
 from _TMDB import get_poster_file, get_meta
 from _FastAPI import get_index_html
-from _secheduling import SyncScheduler  # your scheduler module
+from _scheduling import SyncScheduler  # your scheduler module
 
 ROOT = Path(__file__).resolve().parent
 

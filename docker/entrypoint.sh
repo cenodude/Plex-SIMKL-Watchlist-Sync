@@ -12,6 +12,7 @@ log(){ echo "[$(date -Iseconds)] $*"; }
 : "${SYNC_CMD:=python /app/plex_simkl_watchlist_sync.py --sync}"
 : "${INIT_CMD:=python /app/plex_simkl_watchlist_sync.py --init-simkl redirect --bind 0.0.0.0:8787}"
 : "${LOCK_FILE:=/var/lock/plex-simkl.lock}"
+: "${WEBINTERFACE:=yes}"  # Default to 'yes', change this in Dockerfile or when running the container
 
 # ---------- Sanity on PUID/PGID ----------
 case "$PUID" in (*[!0-9]*|'') PUID=1000;; esac
@@ -158,4 +159,14 @@ fi
 chmod 0644 /etc/cron.d/plex-simkl
 
 log "[ENTRYPOINT] Cron scheduled: ${CRON_SCHEDULE}"
-exec cron -f
+
+# ---------- Check WEBINTERFACE and start corresponding process ----------
+if [[ "$WEBINTERFACE" == "yes" ]]; then
+    log "[ENTRYPOINT] Starting web interface..."
+    # Start the web interface (FastAPI app)
+    exec python /app/webapp.py
+else
+    log "[ENTRYPOINT] Starting sync..."
+    # Start the sync process if WEBINTERFACE is not set to 'yes'
+    exec cron -f
+fi

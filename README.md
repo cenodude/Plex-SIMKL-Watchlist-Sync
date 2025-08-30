@@ -1,6 +1,6 @@
+
 <p align="center">
   <img src="images/Plex-SIMKL.jpg" alt="Plex ⇄ SIMKL Watchlist Sync" width="600">
-  
 </p>
 
 ## ✅ Features
@@ -12,20 +12,23 @@
     - **Subsequent runs:** *adds and deletions* both ways, based on deltas vs the snapshot.
   - **`mirror`** — make one side exactly match the other (adds + deletions) using `source_of_truth` (`plex` or `simkl`).
 - **Built-in SIMKL OAuth redirect helper** (`--init-simkl redirect`) to obtain tokens easily.
-- Helper script is included to fetch your **Plex Account token easily** (`plex_token_helper.py`)
+- Helper script is included to fetch your **Plex Account token easily** (`plex_token_helper.py`).
+- **Web interface** for controlling sync operations, viewing progress, and managing your watchlist directly.
 
 ---
 
 ## 🧩 How it works
 
-1. Read Plex Watchlist 
+1. Read Plex Watchlist.
 2. Build ID sets (IMDB/TMDB/TVDB/slug when available) for stable matching across both services.
-3. Compute differences with SIMKL
+3. Compute differences with SIMKL.
 4. Apply changes based on your configured mode:
    - **two-way (first run):** add-only on both sides, snapshot saved to `state.json`.
    - **two-way (later runs):** add/remove in both directions using the snapshot to detect deltas.
    - **mirror(plex):** make SIMKL exactly match Plex (add to SIMKL, remove from SIMKL).
    - **mirror(simkl):** make Plex exactly match SIMKL (add/remove in Plex via `plexapi`).
+
+---
 
 ## 🚀 Getting Started
 
@@ -33,22 +36,21 @@ You can run **Plex ⇄ SIMKL Watchlist Sync** in two ways:
 
 ### Option A — Docker (recommended for servers/NAS)
 
-Pull and run:
+The **Docker** option automates the setup, providing a containerized solution with easy configuration and minimal setup.
 
-### Pull the image
+#### Docker Setup:
+
+**1. Pull the Docker image:**
 ```bash
 docker pull ghcr.io/cenodude/plex-simkl-watchlist-sync:latest
 ```
-### Run the container
+
+**2. Run the container:**
 ```bash
-docker run -d --name watchlist-sync \
-  -p 8787:8787 \
-  -v "$PWD/config:/config" \
-  -e TZ="Europe/Amsterdam" \
-  ghcr.io/cenodude/plex-simkl-watchlist-sync:latest
+docker run -d --name watchlist-sync   -p 8787:8787   -v "$PWD/config:/config"   -e TZ="Europe/Amsterdam"   ghcr.io/cenodude/plex-simkl-watchlist-sync:latest
 ```
-Or use Docker-Compose
-### docker-compose.yml
+
+Alternatively, use **Docker-Compose** for easier management:
 
 ```yaml
 version: "3.8"
@@ -62,99 +64,107 @@ services:
     volumes:
       - ./config:/config
     ports:
-      - "8787:8787"             # only needed on first run for OAuth
+      - "8787:8787"  # Exposed only for first-time OAuth
     restart: unless-stopped
 ```
 
-#### First-time setup
-1. After container starts, a `config.json` is created inside `./config/`.  
-2. **Edit `config.json`** and add:
-   - Your **Plex account token** or use the embedded (`plex_token_helper.py`) in /app folder
-   - Your **SIMKL client_id** and **client_secret** (SIMKL Developer - https://simkl.com/settings/developer/new/)
+#### First-Time Setup:
+
+1. After container starts, a `config.json` is created inside `./config/`.
+2. **Edit `config.json`** to add:
+   - Your **Plex account token** (use `plex_token_helper.py` if needed).
+   - Your **SIMKL client_id** and **client_secret** (SIMKL Developer - [Create an app here](https://simkl.com/settings/developer/new/)).
 3. Restart the container.
 
-#### First-time setup (SIMKL authorization)
-- On restart, the container will show a **SIMKL authorization URL**
-- 👉 IMPORTANT: copy this exact URL into your SIMKL app settings under *Redirect URIs*. 
-- Open this URL in your browser and complete login.  
-- Tokens will be automatic saved in `./config/config.json`.  
-- Restart the container again and you are ready.
+#### First-Time Setup (SIMKL authorization):
 
-#### Notes
+- On restart, the container will show a **SIMKL authorization URL**.
+- 👉 IMPORTANT: Copy this exact URL into your SIMKL app settings under *Redirect URIs*.
+- Open this URL in your browser and complete login.
+- Tokens will be automatically saved in `./config/config.json`.
+- Restart the container again and you're ready.
+
+#### Notes:
+
 - Default sync runs every 24 hours. Change with:
   ```bash
   -e CRON_SCHEDULE="*/15 * * * *"
   ```
+
 ---
 
-### Option B — Manual Python
+### Option B — Manual Python Setup
 
-Requirements:
+If you prefer **manual Python** setup without Docker, follow the instructions below.
+
+#### Requirements:
+
 - **Python 3.8+**
-- Python packages: **`requests`**, **`plexapi`**
-- PlexAPI 4.17.1 or higher. Validate if you have the correct version or pip install -U plexapi
-- A `config.json` next to the script (auto-created on first run)
-- A SIMKL application (client id/secret)
-- A Plex account token
-  
-```bash
-pip install -U requests plexapi
-```
+- Install dependencies:
+  ```bash
+  pip install -U requests plexapi
+  ```
 
-First-time setup:
+- A `config.json` will be auto-created on first run.
 
-1. Create `config.json`.  
+#### First-Time Setup:
+
+1. **Create `config.json`:**
    ```bash
    python plex_simkl_watchlist_sync.py
    ```
 
-2. **Edit `config.json`** and add:
-   - Your **Plex account token** or use the embedded (`plex_token_helper.py`)
-   - Your **SIMKL client_id** and **client_secret** (from SIMKL Developer - https://simkl.com/settings/developer/new/)
+2. **Edit `config.json`** to add:
+   - Your **Plex account token** or use the embedded (`plex_token_helper.py`).
+   - Your **SIMKL client_id** and **client_secret** (from SIMKL Developer - [Create an app here](https://simkl.com/settings/developer/new/)).
 
+#### SIMKL Authorization:
 
-3. 🔑 First-time setup (SIMKL authorization)
-
-Before you can sync, you need to link this tool to your SIMKL account.  
-This is a one-time step.
+Before you can sync, link this tool to your SIMKL account with a one-time setup.
 
 Run:
-
 ```bash
 python plex_simkl_watchlist_sync.py --init-simkl redirect --bind 0.0.0.0:8787
 ```
 
-- `--init-simkl redirect` → starts a small local helper that will receive the SIMKL login response.  
-- `--bind 0.0.0.0:8787` → tells the helper where to listen for the login.
+- `--init-simkl redirect` → Starts a local helper that will receive the SIMKL login response.
+- `--bind 0.0.0.0:8787` → Tells the helper where to listen for the login.
 
-### ℹ️ What to use instead of `0.0.0.0`
-Replace `0.0.0.0` with an address your browser can actually reach:
-
-- 🖥 **If running directly on your PC:**  
-  Use `127.0.0.1:8787` or `localhost:8787`
-
-- 🐳 **If running inside Docker on another machine:**  
-  Use that machine’s LAN IP, e.g. `192.168.1.23:8787`
-
-When you run the command, the script prints a **callback URL** like:
-
+After running, the script prints the **callback URL** like:
 ```
 http://192.168.1.23:8787/callback
 ```
 
-👉 Copy this exact URL into your SIMKL app settings under *Redirect URIs*.  
-Then open the SIMKL login link shown in the terminal, log in, and approve access.
-
-Once complete, tokens are saved into `config.json`.  
-You don’t need to repeat this step unless you reset or delete your config.
+👉 **Copy this exact URL into your SIMKL app settings** under *Redirect URIs*.
 
 Then run sync normally:
-
 ```bash
 python plex_simkl_watchlist_sync.py --sync
 ```
 
-That’s it. Pick **Docker** if you want it automated on a server, or **manual** if you run it locally.
+---
+
+## **Web Interface**
+
+Starting with version **0.4.0**, you can also use a **web interface** to manage the sync process.
+
+### **In Docker**:
+
+By default, the `WEBINTERFACE` is set to **`yes`** in Docker, meaning the web interface will automatically be started. The web UI can be accessed on port **8787**.
+
+To run the web interface with Docker, just ensure the environment variable `WEBINTERFACE` is set to `yes`:
+```bash
+docker run -d --name watchlist-sync   -p 8787:8787   -v "$PWD/config:/config"   -e TZ="Europe/Amsterdam"   -e WEBINTERFACE="yes"   ghcr.io/cenodude/plex-simkl-watchlist-sync:latest
+```
+
+### **Outside Docker** (manual):
+
+If running manually (outside Docker), the **webapp.py** file is used to start the web interface:
+```bash
+python /app/webapp.py
+```
+
+This will start a FastAPI-based server, and you can access the web interface on **http://127.0.0.1:8787** by default.
 
 ---
 
@@ -190,49 +200,28 @@ A starter file is created on first run:
 }
 ```
 
-### Keys
-
-- `plex.account_token`: Your Plex account token (see “Getting a Plex token” below).
-- `simkl.*`: Credentials and tokens for SIMKL.
-- `sync.enable_add` / `sync.enable_remove`: Global toggles for adding/removing.
-- `sync.verify_after_write`: Reserved for future verification logic.
-- `bidirectional.enabled`: `true` → two-way or mirror; `false` → one-way Plex → SIMKL.
-- `bidirectional.mode`:
-  - `"two-way"` — symmetric, with state snapshot and real deletions after first run.
-  - `"mirror"` — make one side exactly match the other using `source_of_truth`.
-- `bidirectional.source_of_truth`: `"plex"` or `"simkl"` (used only in `mirror`).
-
 ---
 
 ## 🔐 SIMKL APP
 
 ### 1) Create your SIMKL app
-- Go to **simkl.com → Settings → Developers** and create an app or https://simkl.com/settings/developer/new/
-- Add the **exact** redirect URI you will use (must match what you launch the helper with):
+- Go to **simkl.com → Settings → Developers** and create an app or [Create a SIMKL app here](https://simkl.com/settings/developer/new/).
+- Add the **exact** redirect URI you will use:
   ```
   http://<HOST>:8787/callback
   ```
-  > `<HOST>` must be reachable from the browser you’ll use to authorize (server IP/hostname for headless, or `127.0.0.1` for same-device).
 
 ---
 
 ## 🎟 Getting a Plex account token
 
-This project requires a Plex account token (`plex.account_token`) stored in `config.json`.  
-A helper script is included to make this simple: **`plex_token_helper.py`**.
+This project requires a **Plex account token** (`plex.account_token`) stored in `config.json`.
 
 Run:
 
 ```bash
 python plex_token_helper.py --fetch
 ```
-
-What happens:
-- It will print a short **PIN code** and a link to `https://plex.tv/link`
-- On **any device with a browser** (PC, phone, tablet), open that link and enter the PIN
-- The script polls automatically until the link is completed
-- Each PIN is valid for ~15 minutes. If one expires, the helper automatically requests a new code (up to 3 tries)
-- Once successful, your `config.json` will be created/updated with:
 
 ---
 
@@ -264,99 +253,20 @@ Show help (and all examples/flags):
 - `config.json` — your configuration + SIMKL tokens.
 - `state.json` — local snapshot that enables **real two-way deletions** on subsequent runs.
 
-> If `state.json` is missing, the script treats the run as “first run” and does **adds only**.
-
 ---
 
-# 🛠️ Troubleshooting
+## 🛠️ Troubleshooting
 
-## Out-of-sync or repeated `NOT EQUAL`
-If a run fails partway or the two lists drift (e.g., you see `Post-sync: Plex=X vs SIMKL=Y → NOT EQUAL` on repeats), do a safe reset + one-time mirror, then return to two-way:
-
-**1) Reset local snapshot**
-```bash
-./plex_simkl_watchlist_sync.py --reset-state
-```
-This removes `state.json` so the next run reseeds cleanly.
-
-**2) Temporarily switch to MIRROR mode**  
-Open `config.json` and set the sync block like this (pick *one* source of truth):
-```json
-"sync": {
-  "enable_add": true,
-  "enable_remove": true,
-  "bidirectional": {
-    "enabled": true,
-    "mode": "mirror",
-    "source_of_truth": "plex"   // or "simkl"
-  },
-  "activity": {
-    "use_activity": true
-  }
-}
-```
-- `"plex"` = make **SIMKL match Plex** (adds/removes on SIMKL).
-- `"simkl"` = make **Plex match SIMKL** (adds/removes on Plex).
-
-> ⚠️ Mirror is **destructive** on the target side (it will remove extras). Choose the direction carefully.
-
-**3) Run a one-time mirror**
-```bash
-./plex_simkl_watchlist_sync.py --sync --debug
-```
-Confirm the final line shows `→ EQUAL`.
-
-**4) Switch back to two-way**
-Edit `config.json` again:
-```json
-"bidirectional": {
-  "enabled": true,
-  "mode": "two-way",
-  "source_of_truth": "plex"
-}
-```
-Then run:
-```bash
-./plex_simkl_watchlist_sync.py --sync
-```
-This saves a fresh snapshot (`state.json`) once counts match.
+### Out-of-sync or repeated `NOT EQUAL`
+If a run fails partway or the two lists drift, reset and switch to mirror mode temporarily, then return to two-way sync. 
 
 ---
-
-## `plexapi` not installed or too old
-Error mentions plexapi or an unsupported call. Fix by upgrading in the **same** Python environment:
-```bash
-pip install -U plexapi
-```
-
-## Plex watchlist 404 via `plexapi`
-- You may see errors like “Section 'watchlist' not found!”.
-- The script will **automatically fall back** to **Plex Discover HTTP** *for reading only*.
-- **Writes to Plex still require `plexapi`**. If add/remove fails, upgrade `plexapi`.
-
-## Plex add/remove fails (400/404)
-Usually a sign `plexapi` needs an update for the latest Plex Discover endpoints. Upgrade:
-```bash
-pip install -U plexapi
-```
-
-## SIMKL 401/403
-Your SIMKL access token may be expired or the client credentials are wrong.
-- Re-run the OAuth helper and ensure the **redirect URI** in SIMKL matches the one printed by the script.
-
-## Redirect helper unreachable
-- Ensure any container/VM port mappings allow inbound to the chosen port (default `8787`).
-- If binding `0.0.0.0`, the helper prints a URL you can open from another device on the network.
-
-
----
-
 
 ## 📣 Support
 
 Issues and suggestions are welcome. When reporting problems, include:
 - Your Python version and OS
-- `plexapi` version (`./plex_simkl_watchlist_sync.py --version`)
+- `plexapi` version
 - Whether you ran with `--debug`
 - Redacted logs that show the failing operation
 
@@ -364,13 +274,4 @@ Issues and suggestions are welcome. When reporting problems, include:
 
 ## 🔒 Disclaimer
 
-This project is a **community-made** utility and is **not affiliated with, endorsed by, or sponsored by** Plex, Inc. or SIMKL. 
-
-- **No Warranty.** The software is provided **“as is”**, without warranty of any kind, express or implied. Use it at your own risk.
-- **Data Safety.** Sync tools can add/remove items. **Back up your data** and verify results after each run.
-- **API/Platform Changes.** Plex and SIMKL may change or throttle their APIs at any time, which can break this script.
-- **Privacy.** Logs may include media titles, IDs, and timestamps. Store logs responsibly and redact sensitive details before sharing.
-- **Terms of Service.** You are responsible for ensuring your usage complies with **Plex** and **SIMKL** Terms of Service.
-- **Support.** Best-effort only. Open issues or pull requests in the repository if you encounter problems.
-
-By using this software, you acknowledge that you have read and agree to the above.
+This project is **community-made** and is **not affiliated with Plex or SIMKL**. Use it at your own risk.

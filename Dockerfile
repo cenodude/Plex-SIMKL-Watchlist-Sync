@@ -17,7 +17,13 @@ COPY plex_simkl_watchlist_sync.py /app/
 COPY config.example.json /app/
 COPY plex_token_helper.py /app/
 COPY webapp.py /app/
+COPY _auth_helper.py /app/
+COPY _FastAPI.py /app/
+COPY _secheduling.py /app/
+COPY _TMDB.py /app/
+COPY _watchlist.py /app/
 
+ dest
 # Python dependencies
 RUN pip install --no-cache-dir --upgrade pip \
  && pip install --no-cache-dir plexapi requests fastapi uvicorn pydantic pillow

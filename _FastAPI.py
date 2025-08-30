@@ -1,6 +1,7 @@
 # _FastAPI.py
 # Exports the full HTML for the FastAPI index page.
 
+
 def get_index_html() -> str:
     return r"""<!doctype html><html><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
@@ -155,6 +156,40 @@ def get_index_html() -> str:
   .footer .btn:active{transform:translateY(1px)}
   #save_msg{margin-left:8px}
 
+  
+  /* ---- Watchlist grid (not a carousel) ---- */
+  .wl-grid{
+    --gap: 12px;
+    display:grid;
+    grid-template-columns: repeat(auto-fill, minmax(148px, 1fr));
+    gap: var(--gap);
+  }
+  .wl-poster{
+    position:relative;
+    aspect-ratio: 2/3;
+    border-radius:14px; overflow:hidden;
+    background:#0a0a17; border:1px solid var(--border);
+    transition: transform .15s ease, box-shadow .2s ease, opacity .35s ease, filter .35s ease;
+  }
+  .wl-poster:hover{ transform: translateY(-2px) scale(1.01); box-shadow:0 0 24px #7c5cff44; }
+  .wl-poster img{ width:100%; height:100%; object-fit:cover; display:block }
+  .wl-ovr{ position:absolute; top:8px; right:8px; display:flex; gap:6px }
+  .wl-del{
+    position:absolute; top:8px; left:8px;
+    padding:4px 8px; border-radius:999px; font-size:11px; font-weight:800;
+    background:rgba(0,0,0,.5); border:1px solid rgba(255,255,255,.12); backdrop-filter: blur(4px);
+    cursor:pointer;
+  }
+  .wl-cap{ position:absolute; left:8px; right:8px; bottom:6px; font-size:12px; color:#dfe3ea; text-shadow:0 1px 2px #000 }
+  .wl-hover{
+    position:absolute; inset:auto 0 0 0; height:62%;
+    background: linear-gradient(180deg,rgba(0,0,0,.1),rgba(0,0,0,.60) 20%, rgba(0,0,0,.85));
+    color:#eaf0ff; padding:10px; transform: translateY(100%); opacity:0; transition:.25s ease;
+    border-top:1px solid #ffffff22; backdrop-filter: blur(8px);
+  }
+  .wl-poster:hover .wl-hover{ transform: translateY(0); opacity:1; }
+  .wl-removing{ opacity:0; transform: scale(.98); filter: blur(1px); }
+
   /* ---------- Poster carousel ---------- */
   .wall-msg{color:var(--muted);margin-bottom:10px}
   .wall-wrap{position:relative; overflow:hidden;}
@@ -236,6 +271,55 @@ def get_index_html() -> str:
     margin: 0 !important;
     flex-wrap: wrap;
   }
+
+  /* --- subtle glass shimmer on the main Sync button --- */
+  #run.btn.acc { position: relative; overflow: hidden; }
+  #run.btn.acc::after {
+    content: "";
+    position: absolute;
+    top: -120%;
+    left: -30%;
+    width: 60%;
+    height: 300%;
+    transform: rotate(25deg);
+    opacity: 0;
+    background: linear-gradient( to right, rgba(255,255,255,0) 0%,
+                                          rgba(255,255,255,0.18) 50%,
+                                          rgba(255,255,255,0) 100% );
+    transition: opacity .2s ease;
+  }
+  #run.btn.acc.glass::after { animation: shimmer 2.8s linear infinite; opacity: 1; }
+  @keyframes shimmer { 0% { transform: translateX(-120%) rotate(25deg); } 100% { transform: translateX(220%) rotate(25deg); } }
+
+
+  /* snellere shimmer wanneer loading */
+  #run.btn.acc.glass::after { animation: shimmer 2.8s linear infinite; opacity: 1; }
+  #run.btn.acc.loading.glass::after { animation-duration: 1.2s; }
+
+  /* spinner in de knop */
+  #run .spinner{
+    display: none;
+    width: 14px; height: 14px;
+    margin-left: 10px;
+    border: 2px solid rgba(255,255,255,.35);
+    border-top-color: rgba(255,255,255,1);
+    border-radius: 50%;
+    animation: cw-spin 0.9s linear infinite;
+  }
+  #run.loading .spinner{ display:inline-block; }
+
+  /* visuele cues bij loading */
+  #run.loading{
+    cursor: progress;
+    filter: brightness(1.02);
+  }
+  #run.loading .label::after{
+    content: "…";
+    font-weight: 800;
+  }
+
+  @keyframes cw-spin{ to { transform: rotate(360deg); } }
+
 </style>
 </head><body>
 <header>
@@ -256,6 +340,7 @@ def get_index_html() -> str:
 
   <div class="tabs">
     <div id="tab-main" class="tab active" onclick="showTab('main')">Main</div>
+    <div id="tab-watchlist" class="tab" onclick="showTab('watchlist')">Watchlist</div>
     <div id="tab-settings" class="tab" onclick="showTab('settings')">Settings</div>
   </div>
 </header>
@@ -290,7 +375,7 @@ def get_index_html() -> str:
       <div class="sep"></div>
       <div class="action-row">
         <div class="action-buttons">
-          <button id="run" class="btn acc" onclick="runSync()">Synchronize</button>
+          <button id="run" class="btn acc glass" onclick="runSync()"><span class="label">Synchronize</span><span class="spinner" aria-hidden="true"></span></button>
           <button class="btn" onclick="toggleDetails()">View details</button>
           <button class="btn" onclick="copySummary()">Copy summary</button>
           <button class="btn" onclick="downloadSummary()">Download report (JSON)</button>
@@ -313,7 +398,7 @@ def get_index_html() -> str:
   </section>
 
   <!-- MAIN: Poster carousel -->
-  <section id="placeholder-card" class="card">
+  <section id="placeholder-card" class="card hidden">
     <div class="title">Watchlist preview</div>
     <div class="wall-wrap">
       <div class="nav prev" onclick="scrollWall(-1)" aria-label="Previous">‹</div>
@@ -324,6 +409,13 @@ def get_index_html() -> str:
     </div>
     <div id="wall-msg" class="wall-msg">Loading…</div>
   </section>
+  <!-- WATCHLIST (grid, not carousel) -->
+  <section id="page-watchlist" class="card hidden">
+    <div class="title">Watchlist</div>
+    <div id="wl-msg" class="wall-msg">Loading…</div>
+    <div id="wl-grid" class="wl-grid hidden"></div>
+  </section>
+
 
   <!-- SETTINGS -->
   <section id="page-settings" class="card hidden">
@@ -463,33 +555,54 @@ def get_index_html() -> str:
 
   async function showTab(n){
     const pageSettings = document.getElementById('page-settings');
+    const pageWatchlist = document.getElementById('page-watchlist');
     const logPanel = document.getElementById('log-panel');
     const layout = document.getElementById('layout');
 
     document.getElementById('tab-main').classList.toggle('active', n==='main');
-    document.getElementById('tab-settings').classList.toggle('active', n!=='main');
+    document.getElementById('tab-watchlist').classList.toggle('active', n==='watchlist');
+    document.getElementById('tab-settings').classList.toggle('active', n==='settings');
 
     document.getElementById('ops-card').classList.toggle('hidden', n!=='main');
     document.getElementById('placeholder-card').classList.toggle('hidden', n!=='main');
-    pageSettings.classList.toggle('hidden', n==='main');
+    pageWatchlist.classList.toggle('hidden', n!=='watchlist');
+    pageSettings.classList.toggle('hidden', n!=='settings');
 
     if(n==='main'){
       layout.classList.remove('single');
-      await refreshStatus();
+      refreshStatus();
       layout.classList.toggle('full', !appDebug);
       if(!esSum){ openSummaryStream(); }
-      if(!wallLoaded){ loadWall(); wallLoaded=true; }
+      await updatePreviewVisibility();   // i.p.v. loadWall()
       refreshSchedulingBanner();
+    } else if(n==='watchlist'){
+      layout.classList.add('single'); layout.classList.remove('full');
+      logPanel.classList.add('hidden');
+      loadWatchlist();
     } else {
       layout.classList.add('single'); layout.classList.remove('full');
       logPanel.classList.add('hidden');
-      await loadConfig(); updateSimklButtonState(); await loadScheduling(); updateTmdbHint();
+      loadConfig(); updateSimklButtonState(); loadScheduling(); updateTmdbHint();
     }
   }
 
   function toggleSection(id){ document.getElementById(id).classList.toggle('open'); }
   function setBusy(v){ busy=v; document.getElementById('run').disabled = v; }
-  function logHTML(t){ const el=document.getElementById('log'); el.innerHTML += t + "<br>"; el.scrollTop = el.scrollHeight; }
+  
+//FIX ... I HOPE THIS WORKS
+  async function runSync(){
+    if(busy) return;
+    setBusy(true);
+    try{
+      await fetch('/api/run', { method:'POST' });
+      if(!esSum){ openSummaryStream(); }
+    }catch(e){ console.warn(e); }
+    finally{
+      refreshStatus();
+    }
+  }
+
+function logHTML(t){ const el=document.getElementById('log'); el.innerHTML += t + "<br>"; el.scrollTop = el.scrollHeight; }
 
   function setPlexSuccess(show){ document.getElementById('plex_msg').classList.toggle('hidden', !show); }
   function setSimklSuccess(show){ document.getElementById('simkl_msg').classList.toggle('hidden', !show); }
@@ -577,36 +690,73 @@ def get_index_html() -> str:
   }
 
   async function saveSettings(){
-    const cfg = await fetch('/api/config').then(r=>r.json());
-    cfg.sync = cfg.sync || {};
-    cfg.sync.enable_add = true;
-    cfg.sync.enable_remove = true;
-    cfg.sync.verify_after_write = true;
-    cfg.sync.bidirectional = cfg.sync.bidirectional || {};
-    cfg.sync.bidirectional.enabled = true;
-    cfg.sync.bidirectional.mode = document.getElementById('mode').value;
-    cfg.sync.bidirectional.source_of_truth = document.getElementById('source').value;
-    cfg.runtime = cfg.runtime || {};
-    cfg.runtime.debug = document.getElementById('debug').value === 'true';
+  // 1) Serverconfig ophalen + deep clone
+  const serverCfg = await fetch('/api/config').then(r=>r.json()).catch(()=>({}));
+  const cfg = (typeof structuredClone === 'function')
+    ? structuredClone(serverCfg)
+    : JSON.parse(JSON.stringify(serverCfg || {}));
 
-    cfg.plex = cfg.plex || {};
-    cfg.plex.account_token = document.getElementById('plex_token').value.trim();
+  // --- SYNC ---
+  cfg.sync = cfg.sync || {};
+  cfg.sync.bidirectional = cfg.sync.bidirectional || {};
 
-    cfg.simkl = cfg.simkl || {};
-    cfg.simkl.client_id = document.getElementById('simkl_client_id').value.trim();
-    cfg.simkl.client_secret = document.getElementById('simkl_client_secret').value.trim();
+  // Alleen UI-velden zetten
+  const uiMode   = document.getElementById('mode').value;
+  const uiSource = document.getElementById('source').value;
+  cfg.sync.bidirectional.mode = uiMode;
+  cfg.sync.bidirectional.source_of_truth = uiSource;
+  // Laat overige flags ongemoeid (enable_add/remove/verify_after_write/bidirectional.enabled)
 
-    cfg.tmdb = cfg.tmdb || {};
-    cfg.tmdb.api_key = document.getElementById('tmdb_api_key').value.trim();
+  // --- RUNTIME ---
+  cfg.runtime = cfg.runtime || {};
+  cfg.runtime.debug = (document.getElementById('debug').value === 'true');
 
-    await fetch('/api/config', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(cfg)});
-    updateSimklButtonState(); updateTmdbHint(); await refreshStatus();
-    const m = document.getElementById('save_msg'); m.classList.remove('hidden'); setTimeout(()=>m.classList.add('hidden'), 1600);
+  // --- PLEX ---
+  cfg.plex = cfg.plex || {};
+  const uiPlexToken = (document.getElementById('plex_token').value || '').trim();
+  if (uiPlexToken) cfg.plex.account_token = uiPlexToken;  // alleen overschrijven als niet leeg
 
-    const onMain = !document.getElementById('ops-card').classList.contains('hidden');
-    if(onMain){ wallLoaded = false; loadWall(); wallLoaded = true; }
-    else { wallLoaded = false; }
+  // --- SIMKL ---
+  cfg.simkl = cfg.simkl || {};
+  const uiCid = (document.getElementById('simkl_client_id').value || '').trim();
+  const uiSec = (document.getElementById('simkl_client_secret').value || '').trim();
+  if (uiCid) cfg.simkl.client_id = uiCid;
+  if (uiSec) cfg.simkl.client_secret = uiSec;
+  // Access token niet hier aanpassen
+
+  // --- TMDb ---
+  cfg.tmdb = cfg.tmdb || {};
+  const uiTmdb = (document.getElementById('tmdb_api_key').value || '').trim();
+  if (uiTmdb) cfg.tmdb.api_key = uiTmdb;   // alleen als ingevuld (leeg = niet wissen)
+
+  // 2) Wegschrijven
+  await fetch('/api/config', {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify(cfg)
+  });
+
+  // 3) UI refreshes
+  updateSimklButtonState();
+  updateTmdbHint();
+  await refreshStatus();
+  await updateWatchlistTabVisibility?.();  // tab tonen/verbergen o.b.v. TMDb key
+
+  // 4) Alleen op Main de preview beheren/laden
+  const onMain = !document.getElementById('ops-card').classList.contains('hidden');
+  if (onMain) {
+    await updatePreviewVisibility();       // laat deze zelf beslissen of 'ie moet laden
+  } else {
+    // Zit je op Settings? Zorg dat de preview verborgen blijft.
+    document.getElementById('placeholder-card')?.classList.add('hidden');
+    // (en laat wallLoaded zoals 'ie staat; updatePreviewVisibility() doet de juiste reset)
   }
+
+  // 5) Save-melding
+  const m = document.getElementById('save_msg');
+  m.classList.remove('hidden');
+  setTimeout(()=>m.classList.add('hidden'), 1600);
+}
 
   // ---- Scheduling UI ----
   async function loadScheduling(){
@@ -835,8 +985,158 @@ def get_index_html() -> str:
     }
   }
 
+  // ---- Watchlist helpers ----
+  function artUrl(item, size){
+    const typ = (item.type === 'tv' || item.type === 'show') ? 'tv' : 'movie';
+    const tmdb = item.tmdb;
+    if(!tmdb) return null;
+    return `/art/tmdb/${typ}/${tmdb}?size=${encodeURIComponent(size || 'w342')}`;
+  }
+
+  function relTimeFromEpoch(epoch){
+    if(!epoch) return '';
+    const secs = Math.max(1, Math.floor(Date.now()/1000 - epoch));
+    const units = [["y",31536000],["mo",2592000],["d",86400],["h",3600],["m",60],["s",1]];
+    for(const [label,span] of units){ if(secs >= span) return Math.floor(secs/span) + label + " ago"; }
+    return "just now";
+  }
+
+  async function loadWatchlist(){
+    const grid = document.getElementById('wl-grid');
+    const msg  = document.getElementById('wl-msg');
+    grid.innerHTML = ''; grid.classList.add('hidden'); msg.textContent = 'Loading…'; msg.classList.remove('hidden');
+
+    try{
+      const data = await fetch('/api/watchlist').then(r=>r.json());
+      if(data.missing_tmdb_key){ msg.textContent = 'Set a TMDb API key to see posters.'; return; }
+      if(!data.ok){ msg.textContent = data.error || 'No state data found.'; return; }
+      const items = data.items || [];
+      if(items.length === 0){ msg.textContent = 'No items on your watchlist yet.'; return; }
+
+      msg.classList.add('hidden'); grid.classList.remove('hidden');
+
+      for(const it of items){
+        const url = artUrl(it, 'w342');
+        const node = document.createElement('div');
+        node.className = 'wl-poster';
+        node.dataset.key = it.key;
+        node.innerHTML = `
+          <img alt="" src="${url || ''}" onerror="this.style.display='none'">
+          <div class="wl-del" title="Delete from Plex" onclick="deletePoster(event, '${encodeURIComponent(it.key)}', this)">Delete</div>
+          <div class="wl-ovr">
+            <span class="pill p-${it.status==='both'?'syn':(it.status==='plex_only'?'px':'sk')}">${it.status.replace('_','/')}</span>
+          </div>
+          <div class="wl-cap">${(it.title || '').replace(/"/g,'&quot;')}</div>
+          <div class="wl-hover">
+            <div class="titleline">${(it.title || '')} ${it.year?('('+it.year+')'):''}</div>
+            <div class="meta">
+              <span class="chip src">${it.added_src || ''}</span>
+              <span class="chip time">${relTimeFromEpoch(it.added_epoch)}</span>
+            </div>
+          </div>
+        `;
+        grid.appendChild(node);
+      }
+    }catch(_){
+      msg.textContent = 'Failed to load.';
+    }
+  }
+
+  async function deletePoster(ev, encKey, btnEl){
+  ev?.stopPropagation?.();
+  const key = decodeURIComponent(encKey);
+  const card = btnEl.closest('.wl-poster');
+  btnEl.disabled = true;
+  try{
+    const res = await fetch('/api/watchlist/' + encodeURIComponent(key), { method:'DELETE' });
+
+    // probeer JSON; zo niet, pak tekst
+    let payload = null;
+    let text = null;
+    try { payload = await res.json(); } catch { text = await res.text(); }
+
+    console.debug('DELETE /api/watchlist', key, {status: res.status, payload, text});
+
+    // 1) primaire pad: backend geeft {ok:true}
+    if (payload && payload.ok === true) {
+      card.classList.add('wl-removing');
+      setTimeout(()=>{ card.remove(); }, 350);
+      return;
+    }
+
+    // 2) fallback: als HTTP 2xx is, maar geen JSON -> optimistic UI
+    if (res.ok && !payload) {
+      card.classList.add('wl-removing');
+      setTimeout(()=>{ card.remove(); }, 350);
+      return;
+    }
+
+    // anders: fout tonen
+    btnEl.disabled = false;
+    btnEl.textContent = 'Failed';
+    setTimeout(()=>{ btnEl.textContent = 'Delete'; }, 1200);
+
+  }catch(e){
+    console.warn('deletePoster error', e);
+    btnEl.disabled = false;
+    btnEl.textContent = 'Error';
+    setTimeout(()=>{ btnEl.textContent = 'Delete'; }, 1200);
+  }
+}
+
+
+  async function updateWatchlistTabVisibility(){
+  try {
+    const cfg = await fetch('/api/config').then(r=>r.json());
+    const tmdbKey = (cfg.tmdb?.api_key || '').trim();
+    document.getElementById('tab-watchlist').style.display = tmdbKey ? 'block' : 'none';
+  } catch(e){
+    // bij error: tab verbergen
+    document.getElementById('tab-watchlist').style.display = 'none';
+  }
+}
+async function hasTmdbKey(){
+  try{
+    const cfg = await fetch('/api/config').then(r=>r.json());
+    return !!(cfg.tmdb?.api_key || '').trim();
+  }catch(_){ return false; }
+}
+
+
+function isOnMain(){
+  return !document.getElementById('ops-card').classList.contains('hidden');
+}
+
+async function updatePreviewVisibility(){
+  const card = document.getElementById('placeholder-card');
+  const row  = document.getElementById('poster-row');
+
+  if (!isOnMain()) {
+    card.classList.add('hidden');
+    return false;
+  }
+
+  const show = await hasTmdbKey();
+
+  if(!show){
+    card.classList.add('hidden');
+    if(row){ row.innerHTML = ''; row.classList.add('hidden'); }
+    window.wallLoaded = false;
+    return false;
+  } else {
+    card.classList.remove('hidden');
+    // Alleen laden als we 'm nog niet hebben
+    if(!window.wallLoaded){
+      await loadWall();
+      window.wallLoaded = true;
+    }
+    return true;
+  }
+}
+
   // Boot
   showTab('main');
+  updateWatchlistTabVisibility();
 </script>
 </body></html>
 """

@@ -573,6 +573,14 @@ def get_index_html() -> str:
 </main>
 
 <script>
+  // Listen for changes in localStorage (other browsers)
+  window.addEventListener('storage', (event) => {
+    if (event.key === 'wl_hidden') {
+      // Reload the watchlist when there's a change in the deleted items
+      loadWatchlist();  // This will reload the watchlist and reflect the "DELETED" overlay
+    }
+  });
+
   let busy=false, esLog=null, esSum=null, plexPoll=null, simklPoll=null, appDebug=false, currentSummary=null;
   let wallLoaded=false, _lastSyncEpoch=null;
 
@@ -1135,7 +1143,6 @@ function logHTML(t){ const el=document.getElementById('log'); el.innerHTML += t 
     }
   }
 
-
   // ---- Watchlist helpers ----
   function artUrl(item, size){
     const typ = (item.type === 'tv' || item.type === 'show') ? 'tv' : 'movie';
@@ -1152,24 +1159,24 @@ function logHTML(t){ const el=document.getElementById('log'); el.innerHTML += t 
     return "just now";
   }
 
-  async function loadWatchlist(){
+  async function loadWatchlist() {
     const grid = document.getElementById('wl-grid');
-    const msg  = document.getElementById('wl-msg');
+    const msg = document.getElementById('wl-msg');
     grid.innerHTML = ''; grid.classList.add('hidden'); msg.textContent = 'Loading…'; msg.classList.remove('hidden');
 
-    try{
-      const data = await fetch('/api/watchlist').then(r=>r.json());
-      if(data.missing_tmdb_key){ msg.textContent = 'Set a TMDb API key to see posters.'; return; }
-      if(!data.ok){ msg.textContent = data.error || 'No state data found.'; return; }
+    try {
+      const data = await fetch('/api/watchlist').then(r => r.json());
+      if (data.missing_tmdb_key) { msg.textContent = 'Set a TMDb API key to see posters.'; return; }
+      if (!data.ok) { msg.textContent = data.error || 'No state data found.'; return; }
       const items = data.items || [];
-      if(items.length === 0){ msg.textContent = 'No items on your watchlist yet.'; return; }
+      if (items.length === 0) { msg.textContent = 'No items on your watchlist yet.'; return; }
 
       msg.classList.add('hidden'); grid.classList.remove('hidden');
 
-      for(const it of items){
+      for (const it of items) {
         const url = artUrl(it, 'w342');
 
-        // container krijgt zowel wl- als poster-classes => hergebruik carrousel CSS
+        // Create the poster container
         const node = document.createElement('div');
         node.className = 'wl-poster poster';
         node.dataset.key = it.key;
@@ -1177,18 +1184,23 @@ function logHTML(t){ const el=document.getElementById('log'); el.innerHTML += t 
         node.dataset.tmdb = String(it.tmdb || '');
         node.dataset.status = it.status;
 
-        // status pill tekst
+        // Check if the item is marked as deleted
+        const isDeleted = (key) => {
+          const hidden = new Set(JSON.parse(localStorage.getItem('wl_hidden') || '[]'));
+          return hidden.has(key);
+        };
+
+        // Set the pill text based on the item status
         const pillText = it.status === 'both' ? 'SYNCED' : (it.status === 'plex_only' ? 'PLEX' : 'SIMKL');
         const pillClass = it.status === 'both' ? 'p-syn' : (it.status === 'plex_only' ? 'p-px' : 'p-sk');
 
-        // markup spiegelt de carrousel (ovr + cap + hover), én houdt Delete
         node.innerHTML = `
           <img alt="" src="${url || ''}" onerror="this.style.display='none'">
-         <div class="wl-del pill p-del" role="button" tabindex="0"
+          <div class="wl-del pill p-del" role="button" tabindex="0"
               title="Delete from Plex"
               onclick="deletePoster(event, '${encodeURIComponent(it.key)}', this)">
-          Delete
-        </div>
+              Delete
+          </div>
 
           <div class="wl-ovr ovr">
             <span class="pill ${pillClass}">${pillText}</span>
@@ -1199,84 +1211,67 @@ function logHTML(t){ const el=document.getElementById('log'); el.innerHTML += t 
           <div class="wl-hover hover">
             <div class="titleline">${(it.title || '')}</div>
             <div class="meta">
-              <div class="chip src">${it.status==='both' ? 'Source: Synced' : (it.status==='plex_only' ? 'Source: Plex' : 'Source: SIMKL')}</div>
+              <div class="chip src">${it.status === 'both' ? 'Source: Synced' : (it.status === 'plex_only' ? 'Source: Plex' : 'Source: SIMKL')}</div>
               <div class="chip time">${relTimeFromEpoch(it.added_epoch)}</div>
             </div>
             <div class="desc" id="wldesc-${node.dataset.type}-${node.dataset.tmdb}">${it.tmdb ? 'Fetching description…' : '—'}</div>
           </div>
         `;
 
-        // Beschrijving lazy laden bij hover (zoals in de carrousel)
-        node.addEventListener('mouseenter', async ()=>{
-          const typ = node.dataset.type;
-          const tmdb = node.dataset.tmdb;
-          if (!tmdb) return;
-          const descEl = document.getElementById(`wldesc-${typ}-${tmdb}`);
+        // If the item is deleted, update the pill to show DELETED
+        if (isDeleted(it.key)) {
+          const pill = node.querySelector('.pill');
+          pill.textContent = 'DELETED';  // Change pill to DELETED
+          pill.classList.add('p-del');   // Apply 'DELETED' styling
+        }
+
+        // Description lazy loading for hover
+        node.addEventListener('mouseenter', async () => {
+          const descEl = document.getElementById(`wldesc-${it.type}-${it.tmdb}`);
           if (!descEl || descEl.dataset.loaded) return;
-          try{
-            const meta = await fetch(`/api/tmdb/meta/${typ}/${tmdb}`).then(r=>r.json());
+          try {
+            const meta = await fetch(`/api/tmdb/meta/${it.type}/${it.tmdb}`).then(r => r.json());
             descEl.textContent = meta?.overview || '—';
             descEl.dataset.loaded = '1';
-          }catch(_){
+          } catch {
             descEl.textContent = '—';
             descEl.dataset.loaded = '1';
           }
-        }, {passive:true});
+        }, { passive: true });
 
         grid.appendChild(node);
       }
-    }catch(_){
+    } catch (_) {
       msg.textContent = 'Failed to load.';
     }
   }
 
-  // Delete poster function (modification to update localStorage)
   async function deletePoster(ev, encKey, btnEl) {
     ev?.stopPropagation?.();
     const key = decodeURIComponent(encKey);
     const card = btnEl.closest('.wl-poster');
     btnEl.disabled = true;
+
     try {
       const res = await fetch('/api/watchlist/' + encodeURIComponent(key), { method: 'DELETE' });
 
-      let payload = null;
-      let text = null;
-      try { payload = await res.json(); } catch { text = await res.text(); }
-
-      if (payload && payload.ok === true) {
+      if (res.ok) {
         card.classList.add('wl-removing');
         setTimeout(() => { card.remove(); }, 350);
-        
+
         // Update the localStorage to reflect deleted status
-        const hidden = new Set((() => {
-          try { return JSON.parse(localStorage.getItem('wl_hidden') || '[]'); }
-          catch { return []; }
-        })());
+        const hidden = new Set(JSON.parse(localStorage.getItem('wl_hidden') || '[]'));
         hidden.add(key);  // Add deleted item key to hidden
         localStorage.setItem('wl_hidden', JSON.stringify([...hidden]));
 
-        return;
-      }
-
-      if (res.ok && !payload) {
-        card.classList.add('wl-removing');
-        setTimeout(() => { card.remove(); }, 350);
-
-        // Update localStorage in case the deletion wasn't reflected in the response
-        const hidden = new Set((() => {
-          try { return JSON.parse(localStorage.getItem('wl_hidden') || '[]'); }
-          catch { return []; }
-        })());
-        hidden.add(key);  // Add deleted item key to hidden
-        localStorage.setItem('wl_hidden', JSON.stringify([...hidden]));
-
+        // Notify other browsers of the change by triggering the 'storage' event
+        window.dispatchEvent(new Event('storage'));  // This will trigger the storage event in other browsers
         return;
       }
 
       btnEl.disabled = false;
       btnEl.textContent = 'Failed';
       setTimeout(() => { btnEl.textContent = 'Delete'; }, 1200);
-
     } catch (e) {
       console.warn('deletePoster error', e);
       btnEl.disabled = false;
@@ -1284,7 +1279,6 @@ function logHTML(t){ const el=document.getElementById('log'); el.innerHTML += t 
       setTimeout(() => { btnEl.textContent = 'Delete'; }, 1200);
     }
   }
-
 
   async function updateWatchlistTabVisibility(){
   try {

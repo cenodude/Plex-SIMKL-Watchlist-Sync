@@ -25,20 +25,17 @@ def _load_hide_set() -> Set[str]:
             data = json.loads(HIDE_PATH.read_text(encoding="utf-8"))
             if isinstance(data, list):
                 return set(str(x) for x in data)
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"Error loading hide set: {e}")
     return set()
-
 
 def _save_hide_set(hide: Set[str]) -> None:
     """Persist the hide-overlay set."""
     try:
         HIDE_PATH.parent.mkdir(parents=True, exist_ok=True)
         HIDE_PATH.write_text(json.dumps(sorted(hide)), encoding="utf-8")
-    except Exception:
-        # Non-fatal: UI will still work, but hidden items may reappear after refresh.
-        pass
-
+    except Exception as e:
+        print(f"Error saving hide set: {e}")
 
 def _pick_added(d: Dict[str, Any]) -> Optional[str]:
     """Return a plausible 'added at' timestamp from various shapes of input objects."""

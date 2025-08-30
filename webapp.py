@@ -232,14 +232,18 @@ def start_proc_detached(cmd: List[str], tag: str) -> None:
     threading.Thread(target=_stream_proc, args=(cmd, tag), daemon=True).start()
 
 # Add refresh_wall() function here
+def _load_hide_set() -> set:
+    # Stub: return an empty set, or implement loading from file if needed
+    return set()
+
 def refresh_wall():
     # Reload the state and hidden items list
     state = _load_state()
     hidden_set = _load_hide_set()
 
     # Re-render the posters, marking those in the hidden set as 'deleted'
-    posters = _wall_items_from_state(state, hidden_set)
-    return render_wall(posters)
+    posters = _wall_items_from_state()
+    return posters  # Return the posters list directly or implement rendering logic here
 
 # ---------- Misc helpers ----------
 def get_primary_ip() -> str:

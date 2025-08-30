@@ -626,7 +626,7 @@ def get_index_html() -> str:
   });
 
   let busy=false, esLog=null, esSum=null, plexPoll=null, simklPoll=null, appDebug=false, currentSummary=null;
-  let wallLoaded=false, _lastSyncEpoch=null;
+  let wallLoaded=false, _lastSyncEpoch=null, _wasRunning=false;
 
   async function showTab(n) {
     const pageSettings = document.getElementById('page-settings');
@@ -772,7 +772,6 @@ function logHTML(t){ const el=document.getElementById('log'); el.innerHTML += t 
   document.getElementById('det-finish').textContent = sum.finished_at || '–';
   setTimeline(sum.timeline || {});
 
-  // <-- NIEUW: knop-UI consistent houden
   const btn = document.getElementById('run');
   if (btn){
     if (sum.running) btn.classList.add('glass');
@@ -780,6 +779,21 @@ function logHTML(t){ const el=document.getElementById('log'); el.innerHTML += t 
   }
   // disabled-toestand op 1 plek bepalen
   if (typeof recomputeRunDisabled === 'function') recomputeRunDisabled();
+
+  // When we transition from running -> not running, refresh posters
+  if (_wasRunning && !sum.running) {
+    // force the main preview to rebuild (resets wallLoaded and loads fresh)
+    window.wallLoaded = false;
+    updatePreviewVisibility?.();  // triggers loadWall() on Main if TMDb key is set
+
+    // refresh the watchlist grid too
+    loadWatchlist?.();
+
+    // keep the inline scheduler text fresh
+    refreshSchedulingBanner?.();
+  }
+  _wasRunning = !!sum.running;
+
 }
 
 
@@ -1304,7 +1318,8 @@ function logHTML(t){ const el=document.getElementById('log'); el.innerHTML += t 
                   const descEl = document.getElementById(`wldesc-${it.type}-${it.tmdb}`);
                   if (!descEl || descEl.dataset.loaded) return;
                   try {
-                      const meta = await fetch(`/api/tmdb/meta/${it.type}/${it.tmdb}`).then(r => r.json());
+                      const cb = window._lastSyncEpoch || Date.now();
+                      const meta = await fetch(`/api/tmdb/meta/${it.type}/${it.tmdb}?cb=${cb}`).then(r => r.json());
                       descEl.textContent = meta?.overview || '—';
                       descEl.dataset.loaded = '1';
                   } catch {

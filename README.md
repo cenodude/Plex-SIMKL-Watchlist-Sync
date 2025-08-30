@@ -32,7 +32,7 @@
 
 ## 🚀 Getting Started
 
-You can run **Plex ⇄ SIMKL Watchlist Sync** in two ways:
+You can run **Plex ⇄ SIMKL Watchlist Sync** in two ways (webapp and CLI):
 
 ### Option A — Docker (recommended for servers/NAS)
 
@@ -71,10 +71,13 @@ services:
 #### First-Time Setup:
 
 1. After container starts, a `config.json` is created inside `./config/`.
-2. **Edit `config.json`** to add:
-   - Your **Plex account token** (use `plex_token_helper.py` if needed).
-   - Your **SIMKL client_id** and **client_secret** (SIMKL Developer - [Create an app here](https://simkl.com/settings/developer/new/)).
-3. Restart the container.
+2. If you’re using the web app, simply configure it through the web interface and you’re all set.
+  
+If you’d prefer not to use the web app, please read on:  
+     - **Edit `config.json`** to add:
+     - Your **Plex account token** (use `plex_token_helper.py` if needed).
+     - Your **SIMKL client_id** and **client_secret** (SIMKL Developer - [Create an app here](https://simkl.com/settings/developer/new/)).
+     - Restart the container.
 
 #### First-Time Setup (SIMKL authorization):
 
@@ -102,12 +105,17 @@ If you prefer **manual Python** setup without Docker, follow the instructions be
 - **Python 3.8+**
 - Install dependencies:
   ```bash
-  pip install -U requests plexapi
+  pip install fastapi uvicorn requests plexapi python-dotenv pydantic[dotenv] aiofiles
+
   ```
 
 - A `config.json` will be auto-created on first run.
 
 #### First-Time Setup:
+
+If you’re using the web app, simply configure it through the web interface and you’re all set.
+
+If you’d prefer not to use the web app, please read on:  
 
 1. **Create `config.json`:**
    ```bash

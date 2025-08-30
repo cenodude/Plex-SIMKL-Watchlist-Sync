@@ -74,6 +74,15 @@ def get_index_html() -> str:
   main.single{grid-template-columns:1fr}
   #ops-card{grid-column:1} #placeholder-card{grid-column:1} #log-panel{grid-column:2; align-self:start}
 
+  /* Reuse carousel visuals on the Watchlist grid items */
+  .wl-poster.poster { /* combineert grid en poster styles */ }
+  .wl-poster .wl-ovr.ovr { /* alias: zelfde pill-styling als carrousel */ }
+  .wl-poster .wl-cap.cap { /* alias: zelfde caption styling */ }
+  .wl-poster .wl-hover.hover { /* alias: zelfde hover-overlay styling */ }
+
+  /* Zorg dat Delete altijd klikbaar blijft */
+  .wl-del { z-index: 5; position: absolute; }
+   
   /* Cards */
   .card{
     background:linear-gradient(180deg,rgba(255,255,255,.02),transparent),var(--panel);
@@ -320,6 +329,28 @@ def get_index_html() -> str:
 
   @keyframes cw-spin{ to { transform: rotate(360deg); } }
 
+  /* --- Watchlist: Delete pill in neon red --- */
+  .wl-del{ 
+    position:absolute; top:8px; left:8px; z-index:5; 
+  }
+
+  /* Hergebruik basis .pill styling en kleur 'm rood */
+  .pill.p-del{
+    color:#ffd8d8;
+    border-color: rgba(255,77,79,.45);
+    box-shadow: 0 0 14px rgba(255,77,79,.45);
+  }
+
+  /* Hover/active feedback zoals de rest van de UI */
+  .pill.p-del:hover{
+    filter: brightness(1.06);
+    box-shadow: 0 0 18px rgba(255,77,79,.60);
+  }
+  .pill.p-del:active{
+    transform: translateY(1px);
+  }
+
+  
 </style>
 </head><body>
 <header>
@@ -1077,30 +1108,68 @@ function logHTML(t){ const el=document.getElementById('log'); el.innerHTML += t 
 
       for(const it of items){
         const url = artUrl(it, 'w342');
+
+        // container krijgt zowel wl- als poster-classes => hergebruik carrousel CSS
         const node = document.createElement('div');
-        node.className = 'wl-poster';
+        node.className = 'wl-poster poster';
         node.dataset.key = it.key;
+        node.dataset.type = it.type === 'tv' || it.type === 'show' ? 'tv' : 'movie';
+        node.dataset.tmdb = String(it.tmdb || '');
+        node.dataset.status = it.status;
+
+        // status pill tekst
+        const pillText = it.status === 'both' ? 'SYNCED' : (it.status === 'plex_only' ? 'PLEX' : 'SIMKL');
+        const pillClass = it.status === 'both' ? 'p-syn' : (it.status === 'plex_only' ? 'p-px' : 'p-sk');
+
+        // markup spiegelt de carrousel (ovr + cap + hover), én houdt Delete
         node.innerHTML = `
           <img alt="" src="${url || ''}" onerror="this.style.display='none'">
-          <div class="wl-del" title="Delete from Plex" onclick="deletePoster(event, '${encodeURIComponent(it.key)}', this)">Delete</div>
-          <div class="wl-ovr">
-            <span class="pill p-${it.status==='both'?'syn':(it.status==='plex_only'?'px':'sk')}">${it.status.replace('_','/')}</span>
+         <div class="wl-del pill p-del" role="button" tabindex="0"
+              title="Delete from Plex"
+              onclick="deletePoster(event, '${encodeURIComponent(it.key)}', this)">
+          Delete
+        </div>
+
+          <div class="wl-ovr ovr">
+            <span class="pill ${pillClass}">${pillText}</span>
           </div>
-          <div class="wl-cap">${(it.title || '').replace(/"/g,'&quot;')}</div>
-          <div class="wl-hover">
-            <div class="titleline">${(it.title || '')} ${it.year?('('+it.year+')'):''}</div>
+
+          <div class="wl-cap cap">${(it.title || '').replace(/"/g,'&quot;')} ${it.year ? '· ' + it.year : ''}</div>
+
+          <div class="wl-hover hover">
+            <div class="titleline">${(it.title || '')}</div>
             <div class="meta">
-              <span class="chip src">${it.added_src || ''}</span>
-              <span class="chip time">${relTimeFromEpoch(it.added_epoch)}</span>
+              <div class="chip src">${it.status==='both' ? 'Source: Synced' : (it.status==='plex_only' ? 'Source: Plex' : 'Source: SIMKL')}</div>
+              <div class="chip time">${relTimeFromEpoch(it.added_epoch)}</div>
             </div>
+            <div class="desc" id="wldesc-${node.dataset.type}-${node.dataset.tmdb}">${it.tmdb ? 'Fetching description…' : '—'}</div>
           </div>
         `;
+
+        // Beschrijving lazy laden bij hover (zoals in de carrousel)
+        node.addEventListener('mouseenter', async ()=>{
+          const typ = node.dataset.type;
+          const tmdb = node.dataset.tmdb;
+          if (!tmdb) return;
+          const descEl = document.getElementById(`wldesc-${typ}-${tmdb}`);
+          if (!descEl || descEl.dataset.loaded) return;
+          try{
+            const meta = await fetch(`/api/tmdb/meta/${typ}/${tmdb}`).then(r=>r.json());
+            descEl.textContent = meta?.overview || '—';
+            descEl.dataset.loaded = '1';
+          }catch(_){
+            descEl.textContent = '—';
+            descEl.dataset.loaded = '1';
+          }
+        }, {passive:true});
+
         grid.appendChild(node);
       }
     }catch(_){
       msg.textContent = 'Failed to load.';
     }
   }
+
 
   async function deletePoster(ev, encKey, btnEl){
   ev?.stopPropagation?.();

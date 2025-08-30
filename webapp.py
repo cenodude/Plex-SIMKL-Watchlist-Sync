@@ -2,12 +2,6 @@
 # -*- coding: utf-8 -*-
 """
 Web UI backend (FastAPI) for Plex ⇄ SIMKL Watchlist Sync
-
-- Docker-aware config path (/config when running from /app)
-- Real connectivity probes for Plex & SIMKL
-- TMDb posters + genres + cache
-- Newest-first poster wall ordering
-- HTML imported from _FastAPI.get_index_html()
 """
 
 import json
@@ -22,17 +16,13 @@ import os
 import shutil
 import urllib.request
 import urllib.error
-from datetime import datetime
+import urllib.parse
+from _watchlist import build_watchlist, delete_watchlist_item
+
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 from contextlib import asynccontextmanager
-
-try:
-    import yaml
-    HAVE_YAML = True
-except Exception:
-    yaml = None
-    HAVE_YAML = False
 
 import uvicorn
 from fastapi import Body, FastAPI, Request, Path as FPath, Query
@@ -51,23 +41,39 @@ from _auth_helper import (
     simkl_build_authorize_url,
     simkl_exchange_code,
 )
-# Let op: bestandsnaam is _TMDB.py (met hoofdletter B)
 from _TMDB import get_poster_file, get_meta
 from _FastAPI import get_index_html
-from _secheduling import SyncScheduler  # jouw scheduler module
+from _secheduling import SyncScheduler  # your scheduler module
 
 ROOT = Path(__file__).resolve().parent
 
-# Docker-aware config location
+
+# --- Favicon (SVG) ---
+FAVICON_SVG = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+<defs><linearGradient id="g" x1="0" y1="0" x2="64" y2="64" gradientUnits="userSpaceOnUse">
+<stop offset="0" stop-color="#2de2ff"/><stop offset="0.5" stop-color="#7c5cff"/><stop offset="1" stop-color="#ff7ae0"/></linearGradient></defs>
+<rect width="64" height="64" rx="14" fill="#0b0b0f"/>
+<rect x="10" y="16" width="44" height="28" rx="6" fill="none" stroke="url(#g)" stroke-width="3"/>
+<rect x="24" y="46" width="16" height="3" rx="1.5" fill="url(#g)"/>
+<circle cx="20" cy="30" r="2.5" fill="url(#g)"/>
+<circle cx="32" cy="26" r="2.5" fill="url(#g)"/>
+<circle cx="44" cy="22" r="2.5" fill="url(#g)"/>
+<path d="M20 30 L32 26 L44 22" fill="none" stroke="url(#g)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>"""
+
+
+# ---------- Paths (Docker-aware) ----------
+# If running from /app (typical inside a container), store config, cache, and reports under /config.
 CONFIG_BASE = Path("/config") if str(ROOT).startswith("/app") else ROOT
-YAML_PATH = CONFIG_BASE / "config.yml"
-JSON_PATH = CONFIG_BASE / "config.json"
-CONFIG_PATH = YAML_PATH if HAVE_YAML and YAML_PATH.exists() else JSON_PATH
+JSON_PATH   = CONFIG_BASE / "config.json"
+CONFIG_PATH = JSON_PATH  # always JSON
 
 REPORT_DIR = CONFIG_BASE / "sync_reports"; REPORT_DIR.mkdir(parents=True, exist_ok=True)
-CACHE_DIR = ROOT / "cache"; CACHE_DIR.mkdir(parents=True, exist_ok=True)
+CACHE_DIR = CONFIG_BASE / "cache"
+CACHE_DIR.mkdir(parents=True, exist_ok=True)
 STATE_PATHS = [CONFIG_BASE / "state.json", ROOT / "state.json"]
 
+# ---------- Globals ----------
 SYNC_PROC_LOCK = threading.Lock()
 RUNNING_PROCS: Dict[str, subprocess.Popen] = {}
 MAX_LOG_LINES = 3000
@@ -94,21 +100,7 @@ DEFAULT_CFG: Dict[str, Any] = {
     "runtime": {"debug": False},
 }
 
-# ---------- Config read/write ----------
-def _read_yaml(p: Path) -> Dict[str, Any]:
-    if not HAVE_YAML or yaml is None:
-        raise RuntimeError("YAML support not available")
-    with p.open("r", encoding="utf-8") as f:
-        return yaml.safe_load(f) or {}
-
-def _write_yaml(p: Path, data: Dict[str, Any]) -> None:
-    if not HAVE_YAML or yaml is None:
-        raise RuntimeError("YAML support not available")
-    tmp = p.with_suffix(p.suffix + ".tmp")
-    with tmp.open("w", encoding="utf-8") as f:
-        yaml.safe_dump(data, f, sort_keys=False)
-    tmp.replace(p)
-
+# ---------- Config read/write (JSON only) ----------
 def _read_json(p: Path) -> Dict[str, Any]:
     with p.open("r", encoding="utf-8") as f:
         return json.load(f)
@@ -120,11 +112,9 @@ def _write_json(p: Path, data: Dict[str, Any]) -> None:
     tmp.replace(p)
 
 def load_config() -> Dict[str, Any]:
-    if CONFIG_PATH.exists():
+    if JSON_PATH.exists():
         try:
-            if CONFIG_PATH.suffix in (".yml", ".yaml") and HAVE_YAML:
-                return _read_yaml(CONFIG_PATH)
-            return _read_json(CONFIG_PATH)
+            return _read_json(JSON_PATH)
         except Exception:
             pass
     cfg = DEFAULT_CFG.copy()
@@ -132,10 +122,7 @@ def load_config() -> Dict[str, Any]:
     return cfg
 
 def save_config(cfg: Dict[str, Any]) -> None:
-    if CONFIG_PATH.suffix in (".yml", ".yaml") and HAVE_YAML:
-        _write_yaml(CONFIG_PATH, cfg)
-    else:
-        _write_json(CONFIG_PATH, cfg)
+    _write_json(JSON_PATH, cfg)
 
 def _is_placeholder(val: str, placeholder: str) -> bool:
     return (val or "").strip().upper() == placeholder.upper()
@@ -192,7 +179,7 @@ def _parse_sync_line(line: str) -> None:
     if m:
         if not SUMMARY.get("running"):
             _summary_set("running", True); SUMMARY["raw_started_ts"] = time.time()
-            _summary_set("started_at", datetime.utcnow().isoformat() + "Z")
+            _summary_set("started_at", datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"))
         _summary_set("cmd", m.group("cmd")); _summary_set_timeline("start", True); return
     m = re.search(r"Version\s+(?P<ver>[0-9][0-9A-Za-z\.\-\+_]*)", s)
     if m: _summary_set("version", m.group("ver")); return
@@ -206,9 +193,9 @@ def _parse_sync_line(line: str) -> None:
         started = SUMMARY.get("raw_started_ts")
         if started:
             dur = max(0.0, time.time()-float(started)); _summary_set("duration_sec", round(dur,2))
-        _summary_set("finished_at", datetime.utcnow().isoformat()+"Z"); _summary_set("running", False); _summary_set_timeline("done", True)
+        _summary_set("finished_at", datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")); _summary_set("running", False); _summary_set_timeline("done", True)
         try:
-            ts = datetime.utcnow().strftime("%Y%m%d-%H%M%S"); path = REPORT_DIR / f"sync-{ts}.json"
+            ts = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S"); path = REPORT_DIR / f"sync-{ts}.json"
             with path.open("w", encoding="utf-8") as f: json.dump(_summary_snapshot(), f, indent=2)
         except Exception: pass
 
@@ -216,7 +203,7 @@ def _stream_proc(cmd: List[str], tag: str) -> None:
     try:
         if tag == "SYNC":
             _summary_reset(); _summary_set("running", True)
-            SUMMARY["raw_started_ts"] = time.time(); _summary_set("started_at", datetime.utcnow().isoformat()+"Z")
+            SUMMARY["raw_started_ts"] = time.time(); _summary_set("started_at", datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"))
             _summary_set_timeline("start", True)
         _append_log(tag, f"> {tag} start: {' '.join(cmd)}")
         proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1, cwd=str(ROOT))
@@ -231,9 +218,9 @@ def _stream_proc(cmd: List[str], tag: str) -> None:
             started = _summary_snapshot().get("raw_started_ts")
             if started:
                 dur = max(0.0, time.time()-float(started)); _summary_set("duration_sec", round(dur,2))
-            _summary_set("finished_at", datetime.utcnow().isoformat()+"Z"); _summary_set("running", False); _summary_set_timeline("done", True)
+            _summary_set("finished_at", datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")); _summary_set("running", False); _summary_set_timeline("done", True)
             try:
-                ts = datetime.utcnow().strftime("%Y%m%d-%H%M%S"); path = REPORT_DIR / f"sync-{ts}.json"
+                ts = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S"); path = REPORT_DIR / f"sync-{ts}.json"
                 with path.open("w", encoding="utf-8") as f: json.dump(_summary_snapshot(), f, indent=2)
             except Exception: pass
     except Exception as e:
@@ -243,6 +230,16 @@ def _stream_proc(cmd: List[str], tag: str) -> None:
 
 def start_proc_detached(cmd: List[str], tag: str) -> None:
     threading.Thread(target=_stream_proc, args=(cmd, tag), daemon=True).start()
+
+# Add refresh_wall() function here
+def refresh_wall():
+    # Reload the state and hidden items list
+    state = _load_state()
+    hidden_set = _load_hide_set()
+
+    # Re-render the posters, marking those in the hidden set as 'deleted'
+    posters = _wall_items_from_state(state, hidden_set)
+    return render_wall(posters)
 
 # ---------- Misc helpers ----------
 def get_primary_ip() -> str:
@@ -269,7 +266,7 @@ def _load_state() -> Dict[str, Any]:
         return {}
 
 def _parse_epoch(v: Any) -> int:
-    # accepts int seconds, float, or ISO 8601 strings
+    """Accept integer seconds, float, or ISO 8601 strings (returns epoch seconds)."""
     if v is None: return 0
     try:
         if isinstance(v, (int, float)): return int(v)
@@ -285,7 +282,7 @@ def _parse_epoch(v: Any) -> int:
         return 0
 
 def _pick_added(d: Dict[str, Any]) -> Optional[str]:
-    """Find a plausible 'added at' timestamp in various shapes."""
+    """Find a plausible 'added at' timestamp in various shapes and normalize to UTC Z."""
     if not isinstance(d, dict):
         return None
     for k in ("added", "added_at", "addedAt", "date_added", "created_at", "createdAt"):
@@ -293,7 +290,7 @@ def _pick_added(d: Dict[str, Any]) -> Optional[str]:
         if v:
             try:
                 if isinstance(v, (int, float)):
-                    return datetime.utcfromtimestamp(int(v)).isoformat() + "Z"
+                    return datetime.fromtimestamp(int(v), timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
                 return str(v)
             except Exception:
                 return str(v)
@@ -304,7 +301,7 @@ def _pick_added(d: Dict[str, Any]) -> Optional[str]:
             if v:
                 try:
                     if isinstance(v, (int, float)):
-                        return datetime.utcfromtimestamp(int(v)).isoformat() + "Z"
+                        return datetime.fromtimestamp(int(v), timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
                     return str(v)
                 except Exception:
                     return str(v)
@@ -485,7 +482,7 @@ def connected_status(cfg: Dict[str, Any]) -> Tuple[bool, bool, bool]:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # startup
+    # Startup
     try:
         scheduler.ensure_defaults()
         sch = (load_config().get("scheduling") or {})
@@ -502,6 +499,74 @@ async def lifespan(app: FastAPI):
             pass
 
 app = FastAPI(lifespan=lifespan)
+
+# --- Watchlist API (grid page) ---
+@app.get("/api/watchlist")
+def api_watchlist() -> JSONResponse:
+    cfg = load_config()
+    st = _load_state()
+    api_key = (cfg.get("tmdb", {}) or {}).get("api_key") or ""
+
+    # If no state at all: return ok:false but HTTP 200 (frontend expects JSON, not 404)
+    if not st:
+        return JSONResponse(
+            {"ok": False, "error": "No state.json found or empty.", "missing_tmdb_key": not bool(api_key)},
+            status_code=200,
+        )
+    try:
+        items = build_watchlist(st, tmdb_api_key_present=bool(api_key))
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e), "missing_tmdb_key": not bool(api_key)}, status_code=200)
+
+    if not items:
+        return JSONResponse(
+            {"ok": False, "error": "No state data found.", "missing_tmdb_key": not bool(api_key)},
+            status_code=200,
+        )
+
+    return JSONResponse(
+        {
+            "ok": True,
+            "items": items,
+            "missing_tmdb_key": not bool(api_key),
+            "last_sync_epoch": st.get("last_sync_epoch"),
+        },
+        status_code=200,
+    )
+
+
+@app.delete("/api/watchlist/{key}")
+def api_watchlist_delete(key: str = FPath(...)) -> JSONResponse:
+    sp = _find_state_path() or (CONFIG_BASE / "state.json")
+    # key may arrive URL-encoded from the browser
+    try:
+        if "%" in (key or ""):
+            key = urllib.parse.unquote(key)
+
+        result = delete_watchlist_item(
+            key=key,
+            state_path=sp,
+            cfg=load_config(),
+            log=_append_log,  # optional logger
+        )
+        # Always return JSON, never 404
+        if not isinstance(result, dict) or "ok" not in result:
+            result = {"ok": False, "error": "unexpected server response"}
+
+        status = 200 if result.get("ok") else 400
+        return JSONResponse(result, status_code=status)
+    except Exception as e:
+        _append_log("TRBL", f"[WATCHLIST] ERROR: {e}")
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+
+
+@app.get("/favicon.svg", include_in_schema=False)
+def favicon_svg():
+    return Response(content=FAVICON_SVG, media_type="image/svg+xml")
+
+@app.get("/favicon.ico", include_in_schema=False)
+def favicon_ico():
+    return Response(content=FAVICON_SVG, media_type="image/svg+xml")
 
 # -------- Scheduler wiring --------
 def _is_sync_running() -> bool:
@@ -748,7 +813,7 @@ def _safe_remove_path(p: Path) -> bool:
 
 @app.post("/api/troubleshoot/clear-cache")
 def api_trbl_clear_cache() -> Dict[str, Any]:
-    # Verwijder inhoud van CACHE_DIR, maar laat de dir bestaan
+    """Delete contents of CACHE_DIR but keep the directory."""
     deleted_files = 0
     deleted_dirs = 0
     if CACHE_DIR.exists():
@@ -767,10 +832,10 @@ def api_trbl_clear_cache() -> Dict[str, Any]:
 
 @app.post("/api/troubleshoot/reset-state")
 def api_trbl_reset_state() -> Dict[str, Any]:
+    """Ask the sync script to rebuild state.json asynchronously (logged under TRBL)."""
     sync_script = ROOT / "plex_simkl_watchlist_sync.py"
     if not sync_script.exists():
         return {"ok": False, "error": "plex_simkl_watchlist_sync.py not found"}
-    # Start asynchroon met eigen logtag
     cmd = [sys.executable, str(sync_script), "--reset-state"]
     start_proc_detached(cmd, tag="TRBL")
     return {"ok": True, "started": True}
@@ -782,7 +847,9 @@ def main(host: str = "0.0.0.0", port: int = 8787) -> None:
     print(f"  Local:   http://127.0.0.1:{port}")
     print(f"  Docker:  http://{ip}:{port}")
     print(f"  Bind:    {host}:{port}")
-    print(f"  Config:  {CONFIG_PATH} ({'YAML' if CONFIG_PATH.suffix in ('.yml','.yaml') else 'JSON'})\n")
+    print(f"  Config:  {CONFIG_PATH} (JSON)")
+    print(f"  Cache:   {CACHE_DIR}")
+    print(f"  Reports: {REPORT_DIR}\n")
     uvicorn.run(app, host=host, port=port)
 
 if __name__ == "__main__":

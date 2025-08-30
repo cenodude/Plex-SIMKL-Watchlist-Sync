@@ -6,6 +6,8 @@ def get_index_html() -> str:
     return r"""<!doctype html><html><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Plex ⇄ SIMKL Watchlist Sync</title>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="alternate icon" href="/favicon.ico">
 <style>
   :root{
     --bg:#000; --panel:#0b0b0f; --panel2:#0e0e15; --muted:#9aa4b2; --fg:#f2f4f8;
@@ -329,27 +331,17 @@ def get_index_html() -> str:
 
   @keyframes cw-spin{ to { transform: rotate(360deg); } }
 
-  /* --- Watchlist: Delete pill in neon red --- */
   .wl-del{ 
     position:absolute; top:8px; left:8px; z-index:5; 
   }
-
-  /* Hergebruik basis .pill styling en kleur 'm rood */
   .pill.p-del{
     color:#ffd8d8;
     border-color: rgba(255,77,79,.45);
     box-shadow: 0 0 14px rgba(255,77,79,.45);
   }
 
-  /* Hover/active feedback zoals de rest van de UI */
-  .pill.p-del:hover{
-    filter: brightness(1.06);
-    box-shadow: 0 0 18px rgba(255,77,79,.60);
-  }
-  .pill.p-del:active{
-    transform: translateY(1px);
-  }
-
+.pill.p-del:hover{ filter:brightness(1.06); box-shadow:0 0 18px rgba(255,77,79,.60); }
+.pill.p-del:active{ transform:translateY(1px); }
   
 </style>
 </head><body>
@@ -584,44 +576,59 @@ def get_index_html() -> str:
   let busy=false, esLog=null, esSum=null, plexPoll=null, simklPoll=null, appDebug=false, currentSummary=null;
   let wallLoaded=false, _lastSyncEpoch=null;
 
-  async function showTab(n){
+  async function showTab(n) {
     const pageSettings = document.getElementById('page-settings');
     const pageWatchlist = document.getElementById('page-watchlist');
     const logPanel = document.getElementById('log-panel');
     const layout = document.getElementById('layout');
 
-    document.getElementById('tab-main').classList.toggle('active', n==='main');
-    document.getElementById('tab-watchlist').classList.toggle('active', n==='watchlist');
-    document.getElementById('tab-settings').classList.toggle('active', n==='settings');
+    // Toggle active state on tabs
+    document.getElementById('tab-main').classList.toggle('active', n === 'main');
+    document.getElementById('tab-watchlist').classList.toggle('active', n === 'watchlist');
+    document.getElementById('tab-settings').classList.toggle('active', n === 'settings');
 
-    document.getElementById('ops-card').classList.toggle('hidden', n!=='main');
-    document.getElementById('placeholder-card').classList.toggle('hidden', n!=='main');
-    pageWatchlist.classList.toggle('hidden', n!=='watchlist');
-    pageSettings.classList.toggle('hidden', n!=='settings');
+    // Toggle visibility of sections based on the selected tab
+    document.getElementById('ops-card').classList.toggle('hidden', n !== 'main');
+    document.getElementById('placeholder-card').classList.toggle('hidden', n !== 'main');
+    pageWatchlist.classList.toggle('hidden', n !== 'watchlist');
+    pageSettings.classList.toggle('hidden', n !== 'settings');
 
-    if(n==='main'){
+    if (n === 'main') {
       layout.classList.remove('single');
       refreshStatus();
       layout.classList.toggle('full', !appDebug);
-      if(!esSum){ openSummaryStream(); }
-      await updatePreviewVisibility();   // i.p.v. loadWall()
+      if (!esSum) { openSummaryStream(); }
+
+      // Refresh poster views when switching to Main tab
+      await updatePreviewVisibility();  // Load the posters for Main view
       refreshSchedulingBanner();
-    } else if(n==='watchlist'){
-      layout.classList.add('single'); layout.classList.remove('full');
+    } else if (n === 'watchlist') {
+      layout.classList.add('single');
+      layout.classList.remove('full');
       logPanel.classList.add('hidden');
-      loadWatchlist();
+
+      // Refresh the Watchlist poster grid when switching to Watchlist tab
+      loadWatchlist();  // Reload the watchlist grid whenever the tab is selected
     } else {
-      layout.classList.add('single'); layout.classList.remove('full');
+      layout.classList.add('single');
+      layout.classList.remove('full');
       logPanel.classList.add('hidden');
-      loadConfig(); updateSimklButtonState(); loadScheduling(); updateTmdbHint();
+      loadConfig();
+      updateSimklButtonState();
+      loadScheduling();
+      updateTmdbHint();
     }
   }
 
-  function toggleSection(id){ document.getElementById(id).classList.toggle('open'); }
-  function setBusy(v){
-  busy = v;
-  recomputeRunDisabled();
-}
+  function toggleSection(id) { 
+    document.getElementById(id).classList.toggle('open'); 
+  }
+
+  function setBusy(v) {
+    busy = v;
+    recomputeRunDisabled();
+  }
+
 
 
 // Global UI snapshot
@@ -1008,73 +1015,126 @@ function logHTML(t){ const el=document.getElementById('log'); el.innerHTML += t 
   }
 
   // Poster wall (build)
-  async function loadWall(){
+  async function loadWall() {
     const card = document.getElementById('placeholder-card');
     const msg = document.getElementById('wall-msg');
     const row = document.getElementById('poster-row');
-    msg.textContent = 'Loading…'; row.innerHTML = ''; row.classList.add('hidden'); card.classList.remove('hidden');
+    msg.textContent = 'Loading…'; 
+    row.innerHTML = ''; 
+    row.classList.add('hidden'); 
+    card.classList.remove('hidden');
 
-    try{
-      const data = await fetch('/api/state/wall').then(r=>r.json());
-      if(data.missing_tmdb_key){ card.classList.add('hidden'); return; }
-      if(!data.ok){ msg.textContent = data.error || 'No state data found.'; return; }
+    // Read client-side hidden set (successfully deleted keys)
+    const hidden = new Set((()=>{
+      try { return JSON.parse(localStorage.getItem('wl_hidden') || '[]'); }
+      catch { return []; }
+    })());
+
+    // Add to hidden keys when deleting an item
+    const isDeleted = (k) => hidden.has(k) || (window._deletedKeys && window._deletedKeys.has(k));
+
+    try {
+      const data = await fetch('/api/state/wall').then(r => r.json());
+      if (data.missing_tmdb_key) {
+        card.classList.add('hidden');
+        return;
+      }
+      if (!data.ok) {
+        msg.textContent = data.error || 'No state data found.';
+        return;
+      }
       const items = data.items || [];
       _lastSyncEpoch = data.last_sync_epoch || null;
-      if(items.length === 0){ msg.textContent = 'No items to show yet.'; return; }
-      msg.classList.add('hidden'); row.classList.remove('hidden');
+      if (items.length === 0) {
+        msg.textContent = 'No items to show yet.';
+        return;
+      }
+      msg.classList.add('hidden');
+      row.classList.remove('hidden');
 
-      for(const it of items){
-        if(!it.tmdb) continue;
+      // Loop through each item and check its status
+      for (const it of items) {
+        if (!it.tmdb) continue;
 
-        const a = document.createElement('a'); a.className = 'poster';
-        a.href = `https://www.themoviedb.org/${it.type}/${it.tmdb}`; a.target = '_blank'; a.rel='noopener';
-        a.dataset.type = it.type; a.dataset.tmdb = String(it.tmdb); a.dataset.source = it.status;
+        const a = document.createElement('a');
+        a.className = 'poster';
+        a.href = `https://www.themoviedb.org/${it.type}/${it.tmdb}`; 
+        a.target = '_blank'; 
+        a.rel = 'noopener';
+        a.dataset.type = it.type; 
+        a.dataset.tmdb = String(it.tmdb); 
+        a.dataset.key = it.key || '';
+
+        // Decide UI status (override to 'deleted' if key is hidden)
+        const uiStatus = isDeleted(it.key) ? 'deleted' : it.status;
+        a.dataset.source = uiStatus;
 
         const img = document.createElement('img');
-        img.loading='lazy'; img.alt = `${it.title||''} (${it.year||''})`;
+        img.loading = 'lazy'; 
+        img.alt = `${it.title || ''} (${it.year || ''})`;
         img.src = `/art/tmdb/${it.type}/${it.tmdb}?size=w342`;
         a.appendChild(img);
 
-        const ovr = document.createElement('div'); ovr.className='ovr';
-        const pill = document.createElement('div'); pill.className = 'pill ' + (it.status==='both'?'p-syn':(it.status==='plex_only'?'p-px':'p-sk'));
-        pill.textContent = (it.status==='both'?'SYNCED':(it.status==='plex_only'?'PLEX':'SIMKL'));
-        ovr.appendChild(pill); a.appendChild(ovr);
+        const ovr = document.createElement('div'); 
+        ovr.className = 'ovr';
+        let pillText, pillClass;
+        if (uiStatus === 'deleted') {
+          pillText = 'DELETED'; 
+          pillClass = 'p-del'; // requires .pill.p-del CSS
+        } else if (uiStatus === 'both') {
+          pillText = 'SYNCED';  
+          pillClass = 'p-syn';
+        } else if (uiStatus === 'plex_only') {
+          pillText = 'PLEX';    
+          pillClass = 'p-px';
+        } else {
+          pillText = 'SIMKL';   
+          pillClass = 'p-sk';
+        }
+        const pill = document.createElement('div');
+        pill.className = 'pill ' + pillClass;
+        pill.textContent = pillText;
+        ovr.appendChild(pill); 
+        a.appendChild(ovr);
 
-        const cap = document.createElement('div'); cap.className='cap';
-        cap.textContent = `${it.title||''} ${it.year?'· '+it.year:''}`;
+        const cap = document.createElement('div'); 
+        cap.className = 'cap';
+        cap.textContent = `${it.title || ''} ${it.year ? '· ' + it.year : ''}`;
         a.appendChild(cap);
 
-        const hover = document.createElement('div'); hover.className='hover';
+        const hover = document.createElement('div'); 
+        hover.className = 'hover';
         hover.innerHTML = `
           <div class="titleline">${it.title || ''}</div>
           <div class="meta">
-            <div class="chip src">${it.status==='both'?'Source: Synced':(it.status==='plex_only'?'Source: Plex':'Source: SIMKL')}</div>
-            <div class="chip time" id="time-${it.type}-${it.tmdb}">${_lastSyncEpoch?('updated ' + relTimeFromEpoch(_lastSyncEpoch)) : ''}</div>
+            <div class="chip src">${uiStatus === 'deleted' ? 'Status: Deleted' : (uiStatus === 'both' ? 'Source: Synced' : (uiStatus === 'plex_only' ? 'Source: Plex' : 'Source: SIMKL'))}</div>
+            <div class="chip time" id="time-${it.type}-${it.tmdb}">${_lastSyncEpoch ? ('updated ' + relTimeFromEpoch(_lastSyncEpoch)) : ''}</div>
           </div>
           <div class="desc" id="desc-${it.type}-${it.tmdb}">Fetching description…</div>
         `;
         a.appendChild(hover);
 
-        a.addEventListener('mouseenter', async ()=>{
+        a.addEventListener('mouseenter', async () => {
           const descEl = document.getElementById(`desc-${it.type}-${it.tmdb}`);
-          if(!descEl || descEl.dataset.loaded) return;
-          try{
-            const meta = await fetch(`/api/tmdb/meta/${it.type}/${it.tmdb}`).then(r=>r.json());
+          if (!descEl || descEl.dataset.loaded) return;
+          try {
+            const meta = await fetch(`/api/tmdb/meta/${it.type}/${it.tmdb}`).then(r => r.json());
             descEl.textContent = meta?.overview || '—';
             descEl.dataset.loaded = '1';
-          }catch(_){
+          } catch {
             descEl.textContent = '—';
             descEl.dataset.loaded = '1';
           }
-        }, {passive:true});
+        }, { passive: true });
 
         row.appendChild(a);
       }
       initWallInteractions();
-    }catch(e){
+    } catch {
       msg.textContent = 'Failed to load preview.';
     }
   }
+
 
   // ---- Watchlist helpers ----
   function artUrl(item, size){
@@ -1170,48 +1230,60 @@ function logHTML(t){ const el=document.getElementById('log'); el.innerHTML += t 
     }
   }
 
+  // Delete poster function (modification to update localStorage)
+  async function deletePoster(ev, encKey, btnEl) {
+    ev?.stopPropagation?.();
+    const key = decodeURIComponent(encKey);
+    const card = btnEl.closest('.wl-poster');
+    btnEl.disabled = true;
+    try {
+      const res = await fetch('/api/watchlist/' + encodeURIComponent(key), { method: 'DELETE' });
 
-  async function deletePoster(ev, encKey, btnEl){
-  ev?.stopPropagation?.();
-  const key = decodeURIComponent(encKey);
-  const card = btnEl.closest('.wl-poster');
-  btnEl.disabled = true;
-  try{
-    const res = await fetch('/api/watchlist/' + encodeURIComponent(key), { method:'DELETE' });
+      let payload = null;
+      let text = null;
+      try { payload = await res.json(); } catch { text = await res.text(); }
 
-    // probeer JSON; zo niet, pak tekst
-    let payload = null;
-    let text = null;
-    try { payload = await res.json(); } catch { text = await res.text(); }
+      if (payload && payload.ok === true) {
+        card.classList.add('wl-removing');
+        setTimeout(() => { card.remove(); }, 350);
+        
+        // Update the localStorage to reflect deleted status
+        const hidden = new Set((() => {
+          try { return JSON.parse(localStorage.getItem('wl_hidden') || '[]'); }
+          catch { return []; }
+        })());
+        hidden.add(key);  // Add deleted item key to hidden
+        localStorage.setItem('wl_hidden', JSON.stringify([...hidden]));
 
-    console.debug('DELETE /api/watchlist', key, {status: res.status, payload, text});
+        return;
+      }
 
-    // 1) primaire pad: backend geeft {ok:true}
-    if (payload && payload.ok === true) {
-      card.classList.add('wl-removing');
-      setTimeout(()=>{ card.remove(); }, 350);
-      return;
+      if (res.ok && !payload) {
+        card.classList.add('wl-removing');
+        setTimeout(() => { card.remove(); }, 350);
+
+        // Update localStorage in case the deletion wasn't reflected in the response
+        const hidden = new Set((() => {
+          try { return JSON.parse(localStorage.getItem('wl_hidden') || '[]'); }
+          catch { return []; }
+        })());
+        hidden.add(key);  // Add deleted item key to hidden
+        localStorage.setItem('wl_hidden', JSON.stringify([...hidden]));
+
+        return;
+      }
+
+      btnEl.disabled = false;
+      btnEl.textContent = 'Failed';
+      setTimeout(() => { btnEl.textContent = 'Delete'; }, 1200);
+
+    } catch (e) {
+      console.warn('deletePoster error', e);
+      btnEl.disabled = false;
+      btnEl.textContent = 'Error';
+      setTimeout(() => { btnEl.textContent = 'Delete'; }, 1200);
     }
-
-    // 2) fallback: als HTTP 2xx is, maar geen JSON -> optimistic UI
-    if (res.ok && !payload) {
-      card.classList.add('wl-removing');
-      setTimeout(()=>{ card.remove(); }, 350);
-      return;
-    }
-
-    // anders: fout tonen
-    btnEl.disabled = false;
-    btnEl.textContent = 'Failed';
-    setTimeout(()=>{ btnEl.textContent = 'Delete'; }, 1200);
-
-  }catch(e){
-    console.warn('deletePoster error', e);
-    btnEl.disabled = false;
-    btnEl.textContent = 'Error';
-    setTimeout(()=>{ btnEl.textContent = 'Delete'; }, 1200);
   }
-}
 
 
   async function updateWatchlistTabVisibility(){

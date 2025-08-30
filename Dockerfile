@@ -23,7 +23,6 @@ COPY _secheduling.py /app/
 COPY _TMDB.py /app/
 COPY _watchlist.py /app/
 
- dest
 # Python dependencies
 RUN pip install --no-cache-dir --upgrade pip \
  && pip install --no-cache-dir plexapi requests fastapi uvicorn pydantic pillow

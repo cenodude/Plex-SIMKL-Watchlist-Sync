@@ -568,7 +568,7 @@ from fastapi import Query
 from fastapi.responses import StreamingResponse
 
 @app.get("/api/logs/stream")
-def api_logs_stream(tag: str = Query("SYNC")):
+def api_logs_stream_initial(tag: str = Query("SYNC")):
     tag = (tag or "SYNC").upper()
 
     def gen():

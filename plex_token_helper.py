@@ -32,7 +32,7 @@ ANSI_R      = "\033[91m"
 ANSI_X      = "\033[0m"
 
 # --- Version / UA ------------------------------------------------------------
-__VERSION__ = "0.4.0"
+__VERSION__ = "0.4.2"
 UA = f"Plex-Token-Helper/{__VERSION__}"
 
 def cprint(*args, **kwargs):

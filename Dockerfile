@@ -25,7 +25,14 @@ COPY _watchlist.py /app/
 
 # Python dependencies
 RUN pip install --no-cache-dir --upgrade pip \
- && pip install --no-cache-dir plexapi requests fastapi uvicorn pydantic pillow
+ && pip install --no-cache-dir \
+    plexapi \
+    requests \
+    fastapi \
+    uvicorn \
+    pydantic \
+    pillow \
+    packaging
 
 # Copy helper scripts
 COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh

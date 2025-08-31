@@ -49,24 +49,32 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          ls -l \
-            config.example.json \
-            plex_simkl_watchlist_sync.py \
-            plex_token_helper.py \
-            README.md
+          # Require README and example config
+          ls -l config.example.json README.md
 
-      - name: Create ZIP artifact
+          # Require at least one Python file (root or any subdir)
+          shopt -s globstar nullglob
+          py=(**/*.py *.py)
+          if (( ${#py[@]} == 0 )); then
+            echo "No .py files found." >&2
+            exit 1
+          fi
+          echo "Python files to include:"
+          printf ' - %s\n' "${py[@]}"
+
+      - name: Create ZIP artifact (all *.py + selected files)
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p dist
+          shopt -s globstar nullglob
+          # Collect files: all .py (recursively) + explicit extras
+          py=(**/*.py *.py)
+          extras=(config.example.json README.md)
           # -j = junk paths (flat zip, no directories)
           zip -9 -j "dist/${{ steps.v.outputs.zipname }}" \
-            config.example.json \
-            plex_simkl_watchlist_sync.py \
-            plex_token_helper.py \
-            README.md
-          # optional checksum
+            "${py[@]}" \
+            "${extras[@]}"
           (cd dist && sha256sum "${{ steps.v.outputs.zipname }}" > "${{ steps.v.outputs.zipname }}.sha256")
 
       - name: Create/Update GitHub Release

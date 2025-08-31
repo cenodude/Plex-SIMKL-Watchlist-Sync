@@ -552,7 +552,143 @@ def get_index_html() -> str:
   /* Hide titles in the WATCHLIST GRID page as well */
   #page-watchlist .wl-cap { display: none !important; }
 
+  /* Icon-only button for Watchlist delete */
+  .icon-btn{
+    --fg: #fff;
+    --bg: rgba(255,255,255,0.06);
+    --bd: rgba(255,255,255,0.12);
+    display:inline-flex; align-items:center; justify-content:center;
+    width:36px; height:36px;
+    border-radius:12px;
+    background:var(--bg);
+    border:1px solid var(--bd);
+    color:var(--fg);
+    cursor:pointer;
+    transition: transform .12s ease, background .2s, border-color .2s, box-shadow .2s;
+  }
+  .icon-btn:hover{
+    background:rgba(255,255,255,0.10);
+    border-color:rgba(255,255,255,0.18);
+    transform:translateY(-1px);
+    box-shadow:0 6px 18px rgba(0,0,0,.25);
+  }
+  .icon-btn:active{ transform:translateY(0); }
+
+  .icon-btn .ico{
+    width:18px; height:18px;
+    fill:none; stroke:currentColor; stroke-width:2;
+    stroke-linecap:round; stroke-linejoin:round;
+  }
+
+  /* Trash-specific micro animation */
+  .icon-btn.trash .lid{ transform-origin: 12px 6px; transition: transform .25s ease; }
+  .icon-btn.trash:hover .lid{ transform: translateY(-1px) rotate(-12deg); }
+
+  /* Async states */
+  .icon-btn.working{ pointer-events:none; opacity:.85; }
+  .icon-btn.working .ico{ animation: spin 900ms linear infinite; }
+
+  .icon-btn.done{
+    background: rgba(46,204,113,.18);
+    border-color: rgba(46,204,113,.45);
+  }
+  .icon-btn.error{
+    background: rgba(231,76,60,.18);
+    border-color: rgba(231,76,60,.45);
+  }
+
+  @keyframes spin{ to{ transform: rotate(360deg); } }
+
+  /* Fade the poster card away on success */
+  .wl-poster.vanish{
+    opacity:0; transform:scale(.96);
+    filter:saturate(.7) brightness(.9);
+    transition: opacity .28s ease, transform .28s ease, filter .28s ease;
+    pointer-events:none;
+  }
+
+  /* Ensure delete icon is on top and clickable inside a poster */
+  .wl-poster { position: relative; } /* already present, fine to duplicate */
+  .wl-del.icon-btn{
+    position: absolute;
+    top: 8px;
+    right: 8px;        /* move to top-right */
+    z-index: 6;        /* above overlays */
+    pointer-events: auto;
+    padding: 0;        /* override old pill padding */
+  }
+
+  .wl-hover { pointer-events: none; } /* remove this line if you need clickable content inside the hover panel */
+
+  /* About page  Modal */
+  .modal-backdrop{ position:fixed; inset:0; z-index:9999; display:grid; place-items:center;
+    background:rgba(0,0,0,.45); backdrop-filter:blur(6px); animation:fadeIn .18s ease; }
+  .modal-backdrop.hidden{ display:none !important; }
+
+  .modal-card{ width:min(560px,92vw); background:rgba(24,24,24,.9); border:1px solid rgba(255,255,255,.08);
+    border-radius:16px; box-shadow:0 20px 60px rgba(0,0,0,.45); overflow:hidden; transform:scale(.98);
+    animation:popIn .22s cubic-bezier(.2,.9,.2,1) forwards; }
+  .modal-header,.modal-footer{ display:flex; align-items:center; justify-content:space-between;
+    padding:14px 16px; background:linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,0)); }
+  .modal-body{ padding:16px; }
+  .title-wrap{ display:flex; gap:12px; align-items:center; }
+  .app-logo{ font-size:22px; line-height:1; }
+  .app-name{ font-weight:800; font-size:16px; }
+  .app-sub{ color:var(--muted,#bbb); font-size:13px; }
+  .btn-ghost{ background:transparent; border:1px solid rgba(255,255,255,.12); color:#fff; border-radius:10px;
+    padding:6px 10px; cursor:pointer; transition:background .2s, border-color .2s, transform .12s; }
+  .btn-ghost:hover{ background:rgba(255,255,255,.06); border-color:rgba(255,255,255,.2); transform:translateY(-1px); }
+  .about-grid{ display:grid; grid-template-columns:1fr 2fr; gap:10px 14px; }
+  .about-item .k{ color:var(--muted,#bbb); font-size:13px; }
+  .about-item .v a{ color:#fff; text-decoration:none; border-bottom:1px dashed rgba(255,255,255,.35); }
+  .about-item .v a:hover{ border-bottom-style:solid; }
+  @media (max-width:480px){ .about-grid{ grid-template-columns:1fr; } .modal-header,.modal-footer{ flex-wrap:wrap; gap:8px; } }
+  @keyframes popIn{ to{ transform:scale(1); } }
+  @keyframes fadeIn{ from{ opacity:0 } to{ opacity:1 } }
+
+/* Brand palette */
+:root{
+  --plex:  #e5a00d;   /* Plex */
+  --simkl: #00b7eb;   /* SIMKL (cyan) */
+  --tmdb:  #01d277;   /* TMDb */
+}
+
+/* Let section headers show right icon and colored left edge */
+.section > .head{
+  position: relative;
+  padding-right: 44px;            /* space for the logo on the right */
+}
+
+/* Brand left edge + small indent */
+#sec-plex  > .head{ border-left: 3px solid var(--plex);  padding-left: 10px; }
+#sec-simkl > .head{ border-left: 3px solid var(--simkl); padding-left: 10px; }
+#sec-tmdb  > .head{ border-left: 3px solid var(--tmdb);  padding-left: 10px; }
+
+
+/* Per-brand accents */
+.brand-ico.plex {  color: var(--plex);  background: rgba(229,160,13,.12);  border-color: rgba(229,160,13,.35); }
+.brand-ico.simkl{  color: var(--simkl); background: rgba(0,183,235,.12);   border-color: rgba(0,183,235,.35); }
+.brand-ico.tmdb {  color: var(--tmdb);  background: rgba(1,210,119,.12);   border-color: rgba(1,210,119,.35); }
+
+/* TMDb wordmark badge */
+.brand-ico.tmdb .tmdb-box{
+  display:inline-block;
+  padding: 0 4px;
+  border-radius: 4px;
+  line-height: 16px;
+  font-size: 11px;
+  font-weight: 800;
+  color: #0a0;                      /* inner text color on bright bg */
+  color: #0e3;                      /* tweak if needed */
+  color: #0c4;                      /* final choice will inherit fine */
+  color: #0;                         /* ensure contrast if your theme is very dark */
+  color: var(--tmdb);
+  border: 1px solid currentColor;
+  background: rgba(1,210,119,.10);
+}
+
 </style>
+
 </head><body>
 <header>
   <div class="brand">
@@ -574,6 +710,7 @@ def get_index_html() -> str:
     <div id="tab-main" class="tab active" onclick="showTab('main')">Main</div>
     <div id="tab-watchlist" class="tab" onclick="showTab('watchlist')">Watchlist</div>
     <div id="tab-settings" class="tab" onclick="showTab('settings')">Settings</div>
+    <div id="tab-about" class="tab" onclick="openAbout()">About</div>
   </div>
 </header>
 
@@ -729,10 +866,11 @@ def get_index_html() -> str:
         <span class="chev">▶</span><strong>Authentication</strong>
       </div>
       <div class="body">
+
         <!-- PLEX -->
         <div class="section" id="sec-plex">
           <div class="head" onclick="toggleSection('sec-plex')">
-            <span class="chev">▶</span><strong>Plex</strong>
+            <span class="chev"></span><strong>Plex</strong>
           </div>
           <div class="body">
             <div class="grid2">
@@ -747,45 +885,59 @@ def get_index_html() -> str:
                 <label>PIN</label>
                 <div style="display:flex;gap:8px">
                   <input id="plex_pin" placeholder="request to fill" readonly>
-                  <button id="btn-copy-plex-pin"   class="btn copy" onclick="copyInputValue('plex_pin', this)">Copy</button>
+                  <button id="btn-copy-plex-pin" class="btn copy" onclick="copyInputValue('plex_pin', this)">Copy</button>
                 </div>
               </div>
             </div>
+
             <div style="display:flex;gap:8px">
               <button class="btn" onclick="requestPlexPin()">Request Token</button>
-              <div style="align-self:center;color:var(--muted)">
-                Opens plex.tv/link (PIN copied to clipboard)
-              </div>
+              <div style="align-self:center;color:var(--muted)">Opens plex.tv/link (PIN copied to clipboard)</div>
             </div>
+
             <div id="plex_msg" class="msg ok hidden">Successfully retrieved token</div>
             <div class="sep"></div>
           </div>
         </div>
-      </div>
-    </div>
-
 
         <!-- SIMKL -->
         <div class="section" id="sec-simkl">
-          <div class="head" onclick="toggleSection('sec-simkl')"><span class="chev">▶</span><strong>SIMKL</strong></div>
+          <div class="head" onclick="toggleSection('sec-simkl')">
+            <span class="chev"></span><strong>SIMKL</strong>
+          </div>
           <div class="body">
             <div class="grid2">
-              <div><label>Client ID</label><input id="simkl_client_id" placeholder="Your SIMKL client id" oninput="updateSimklButtonState(); updateSimklHint();"></div>
-              <div><label>Client Secret</label><input id="simkl_client_secret" placeholder="Your SIMKL client secret" oninput="updateSimklButtonState(); updateSimklHint();"></div>
+              <div>
+                <label>Client ID</label>
+                <input id="simkl_client_id" placeholder="Your SIMKL client id"
+                      oninput="updateSimklButtonState(); updateSimklHint();">
+              </div>
+              <div>
+                <label>Client Secret</label>
+                <input id="simkl_client_secret" placeholder="Your SIMKL client secret"
+                      oninput="updateSimklButtonState(); updateSimklHint();">
+              </div>
             </div>
+
             <div id="simkl_hint" class="msg warn hidden">
               You need a SIMKL API key. Create one at
               <a href="https://simkl.com/settings/developer/" target="_blank" rel="noopener">SIMKL Developer</a>.
               Set the Redirect URL to <code id="redirect_uri_preview"></code>.
               <button class="btn" style="margin-left:8px" onclick="copyRedirect()">Copy Redirect URL</button>
             </div>
+
             <div style="display:flex;gap:8px;margin-top:8px">
               <button id="simkl_start_btn" class="btn" onclick="startSimkl()" disabled>Start SIMKL Auth</button>
               <div style="align-self:center;color:var(--muted)">Opens SIMKL authorize, callback to this webapp</div>
             </div>
+
             <div class="grid2" style="margin-top:8px">
-              <div><label>Access token</label><input id="simkl_access_token" readonly placeholder="empty = not set"></div>
+              <div>
+                <label>Access token</label>
+                <input id="simkl_access_token" readonly placeholder="empty = not set">
+              </div>
             </div>
+
             <div id="simkl_msg" class="msg ok hidden">Successfully retrieved token</div>
             <div class="sep"></div>
           </div>
@@ -793,12 +945,15 @@ def get_index_html() -> str:
 
         <!-- TMDb -->
         <div class="section" id="sec-tmdb">
-          <div class="head" onclick="toggleSection('sec-tmdb')"><span class="chev">▶</span><strong>TMDb</strong></div>
+          <div class="head" onclick="toggleSection('sec-tmdb')">
+            <span class="chev"></span><strong>TMDb</strong>
+          </div>
           <div class="body">
             <div class="grid2">
               <div style="grid-column:1 / -1">
                 <label>API key</label>
-                <input id="tmdb_api_key" placeholder="Your TMDb API key" oninput="this.dataset.dirty='1'; updateTmdbHint()">
+                <input id="tmdb_api_key" placeholder="Your TMDb API key"
+                      oninput="this.dataset.dirty='1'; updateTmdbHint()">
                 <div id="tmdb_hint" class="msg warn hidden">
                   TMDb is optional but recommended to enrich posters & metadata in the preview.
                   Get an API key at
@@ -807,8 +962,11 @@ def get_index_html() -> str:
                 <div class="sub">This product uses the TMDb API but is not endorsed by TMDb.</div>
               </div>
             </div>
+            <div class="sep"></div>
           </div>
         </div>
+
+
       </div>
     </div>
 
@@ -819,10 +977,58 @@ def get_index_html() -> str:
     </div>
   </section>
 
-  <aside id="log-panel" class="card hidden">
-    <div class="title">Raw log (Debug)</div>
-    <div id="log" class="log"></div>
-  </aside>
+</section>
+
+<!-- Debug log -->
+<aside id="log-panel" class="card hidden">
+  <div class="title">Raw log (Debug)</div>
+  <div id="log" class="log"></div>
+</aside>
+
+  <!-- About modal -->
+  <div id="about-backdrop" class="modal-backdrop hidden" onclick="closeAbout(event)">
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="about-title" onclick="event.stopPropagation()">
+      <div class="modal-header">
+        <div class="title-wrap">
+          <div class="app-logo">🎬</div>
+          <div>
+            <div id="about-title" class="app-name">Plex ⇄ SIMKL Watchlist Sync</div>
+            <div class="app-sub"><span id="about-version">Version …</span></div>
+          </div>
+        </div>
+        <button class="btn-ghost" aria-label="Close" onclick="closeAbout()">✕</button>
+      </div>
+
+      <div class="modal-body">
+        <div class="about-grid">
+          <div class="about-item">
+            <div class="k">Repository</div>
+            <div class="v"><a id="about-repo" href="https://github.com/cenodude/plex-simkl-watchlist-sync" target="_blank" rel="noopener">GitHub</a></div>
+          </div>
+          <div class="about-item">
+            <div class="k">Latest Release</div>
+            <div class="v"><a id="about-latest" href="#" target="_blank" rel="noopener">—</a></div>
+          </div>
+          <div class="about-item">
+            <div class="k">Update</div>
+            <div class="v"><span id="about-update" class="badge upd hidden"></span></div>
+          </div>
+        </div>
+
+        <div class="sep"></div>
+        <div class="sub" role="note">
+          <strong>Disclaimer:</strong> This is open-source software provided “as is,” without any warranties or guarantees. Use at your own risk.
+          This project is not affiliated with, sponsored by, or endorsed by Plex, Inc., SIMKL, or The Movie Database (TMDb).
+          All product names, logos, and brands are property of their respective owners.
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <button class="btn" onclick="window.open(document.getElementById('about-latest').href,'_blank')">Open Releases</button>
+        <button class="btn alt" onclick="closeAbout()">Close</button>
+      </div>
+    </div>
+  </div>
 
 </main>
 
@@ -905,21 +1111,53 @@ def get_index_html() -> str:
     return "just now";
   }
 
+  /* ====== About modal ====== */
+  async function openAbout(){
+    try{
+      const r = await fetch('/api/version', { cache: 'no-store' });
+      const j = r.ok ? await r.json() : {};
+
+      const cur    = j.current || '0.0.0';
+      const latest = j.latest  || null;
+      const url    = j.html_url || 'https://github.com/cenodude/plex-simkl-watchlist-sync/releases';
+      const upd    = !!j.update_available;
+
+      document.getElementById('about-version')?.replaceChildren(document.createTextNode(`Version ${cur}`));
+      const relEl = document.getElementById('about-latest'); if (relEl){ relEl.href = url; relEl.textContent = latest ? `v${latest}` : 'Releases'; }
+      const updEl = document.getElementById('about-update');
+      if (updEl){
+        updEl.classList.add('badge','upd');
+        if (upd && latest){ updEl.textContent = `Update ${latest} available`; updEl.classList.remove('hidden'); updEl.classList.remove('reveal'); void updEl.offsetWidth; updEl.classList.add('reveal'); }
+        else { updEl.textContent = ''; updEl.classList.add('hidden'); updEl.classList.remove('reveal'); }
+      }
+    } catch(_) {}
+    document.getElementById('about-backdrop')?.classList.remove('hidden');
+  }
+
+  function closeAbout(ev){
+    if (ev && ev.type === 'click' && ev.currentTarget !== ev.target) return; // ignore clicks inside card
+    document.getElementById('about-backdrop')?.classList.add('hidden');
+  }
+
+  document.addEventListener('keydown', (e)=>{ if (e.key === 'Escape') closeAbout(); });
+
   /* ====== Tabs ====== */
   async function showTab(n) {
-    const pageSettings = document.getElementById('page-settings');
+    const pageSettings  = document.getElementById('page-settings');
     const pageWatchlist = document.getElementById('page-watchlist');
-    const logPanel = document.getElementById('log-panel');
-    const layout = document.getElementById('layout');
+    const logPanel      = document.getElementById('log-panel');
+    const layout        = document.getElementById('layout');
 
-    document.getElementById('tab-main').classList.toggle('active', n === 'main');
-    document.getElementById('tab-watchlist').classList.toggle('active', n === 'watchlist');
-    document.getElementById('tab-settings').classList.toggle('active', n === 'settings');
+    // Active tabs (About is a modal → do NOT toggle here)
+    document.getElementById('tab-main')     ?.classList.toggle('active', n === 'main');
+    document.getElementById('tab-watchlist')?.classList.toggle('active', n === 'watchlist');
+    document.getElementById('tab-settings') ?.classList.toggle('active', n === 'settings');
 
-    document.getElementById('ops-card').classList.toggle('hidden', n !== 'main');
-    document.getElementById('placeholder-card').classList.toggle('hidden', n !== 'main');
-    pageWatchlist.classList.toggle('hidden', n !== 'watchlist');
-    pageSettings.classList.toggle('hidden', n !== 'settings');
+    // Page visibility (About is a modal → do NOT touch it here)
+    document.getElementById('ops-card')       ?.classList.toggle('hidden', n !== 'main');
+    document.getElementById('placeholder-card')?.classList.toggle('hidden', n !== 'main');
+    pageWatchlist?.classList.toggle('hidden', n !== 'watchlist');
+    pageSettings ?.classList.toggle('hidden', n !== 'settings');
 
     if (n === 'main') {
       layout.classList.remove('single');
@@ -942,6 +1180,8 @@ def get_index_html() -> str:
       updateTmdbHint?.(); updateSimklHint?.(); updateSimklButtonState?.(); loadScheduling?.();
     }
   }
+
+
   function toggleSection(id){ document.getElementById(id).classList.toggle('open'); }
 
   /* ====== Run (synchronize) ====== */
@@ -1732,10 +1972,21 @@ document.addEventListener('DOMContentLoaded', () => {
         node.dataset.status = it.status;
         const pillText = it.status === 'both' ? 'SYNCED' : (it.status === 'plex_only' ? 'PLEX' : 'SIMKL');
         const pillClass = it.status === 'both' ? 'p-syn' : (it.status === 'plex_only' ? 'p-px' : 'p-sk');
-
+        
         node.innerHTML = `
           <img alt="" src="${artUrl(it, 'w342') || ''}" onerror="this.style.display='none'">
-          <div class="wl-del pill p-del" role="button" tabindex="0" title="Delete from Plex" onclick="deletePoster(event, '${encodeURIComponent(it.key)}', this)">Delete</div>
+          <button class="wl-del icon-btn trash"
+                  type="button"
+                  title="Remove from Plex watchlist"
+                  aria-label="Remove from Plex watchlist"
+                  onclick="deletePoster(event, '${encodeURIComponent(it.key)}', this)">
+            <svg class="ico" viewBox="0 0 24 24" aria-hidden="true">
+              <path class="lid" d="M9 4h6l1 2H8l1-2z"/>
+              <path d="M6 7h12l-1 13H7L6 7z"/>
+              <path d="M10 11v6M14 11v6"/>
+            </svg>
+          </button>
+
           <div class="wl-ovr ovr"><span class="pill ${pillClass}">${pillText}</span></div>
           <div class="wl-cap cap">${(it.title || '').replace(/"/g, '&quot;')} ${it.year ? '· ' + it.year : ''}</div>
           <div class="wl-hover hover">
@@ -1746,6 +1997,7 @@ document.addEventListener('DOMContentLoaded', () => {
             </div>
             <div class="desc" id="wldesc-${node.dataset.type}-${node.dataset.tmdb}">${it.tmdb ? 'Fetching description…' : '—'}</div>
           </div>`;
+
 
         const hidden = new Set(JSON.parse(localStorage.getItem('wl_hidden') || '[]'));
         if (hidden.has(it.key)) {
@@ -1771,28 +2023,45 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
+  // Delete a watchlist item (from Plex)
   async function deletePoster(ev, encKey, btnEl) {
     ev?.stopPropagation?.();
-    const key = decodeURIComponent(encKey);
+    const key  = decodeURIComponent(encKey);
     const card = btnEl.closest('.wl-poster');
+
+    // visual state
     btnEl.disabled = true;
+    btnEl.classList.remove('done','error');
+    btnEl.classList.add('working');
+
     try {
       const res = await fetch('/api/watchlist/' + encodeURIComponent(key), { method: 'DELETE' });
-      if (res.ok) {
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+
+      // fade out and remove
+      if (card) {
         card.classList.add('wl-removing');
         setTimeout(() => { card.remove(); }, 350);
-        const hidden = new Set(JSON.parse(localStorage.getItem('wl_hidden') || '[]'));
-        hidden.add(key);
-        localStorage.setItem('wl_hidden', JSON.stringify([...hidden]));
-        window.dispatchEvent(new Event('storage'));
-        return;
       }
-      btnEl.disabled = false; btnEl.textContent = 'Failed'; setTimeout(() => { btnEl.textContent = 'Delete'; }, 1200);
+
+      // persist hidden key (your existing behavior)
+      const hidden = new Set(JSON.parse(localStorage.getItem('wl_hidden') || '[]'));
+      hidden.add(key);
+      localStorage.setItem('wl_hidden', JSON.stringify([...hidden]));
+      window.dispatchEvent(new Event('storage'));
+
+      btnEl.classList.remove('working');
+      btnEl.classList.add('done');
     } catch (e) {
       console.warn('deletePoster error', e);
-      btnEl.disabled = false; btnEl.textContent = 'Error'; setTimeout(() => { btnEl.textContent = 'Delete'; }, 1200);
+      btnEl.classList.remove('working');
+      btnEl.classList.add('error');
+      setTimeout(() => btnEl.classList.remove('error'), 1200);
+    } finally {
+      setTimeout(() => { btnEl.disabled = false; }, 600);
     }
   }
+
 
   /* ====== Watchlist preview visibility ====== */
   async function updateWatchlistPreview(){ await loadWatchlist(); }

@@ -425,64 +425,112 @@ def get_index_html() -> str:
   }
 
   /* --- subtle glass shimmer on the main Sync button --- */
-  #run.btn.acc { position: relative; overflow: hidden; }
-  #run.btn.acc::after {
-    content: "";
-    position: absolute;
-    top: -120%;
-    left: -30%;
-    width: 60%;
-    height: 300%;
-    transform: rotate(25deg);
-    opacity: 0;
-    background: linear-gradient( to right, rgba(255,255,255,0) 0%,
-                                          rgba(255,255,255,0.18) 50%,
-                                          rgba(255,255,255,0) 100% );
-    transition: opacity .2s ease;
-  }
-  #run.btn.acc.glass::after { animation: shimmer 2.8s linear infinite; opacity: 1; }
-  @keyframes shimmer { 0% { transform: translateX(-120%) rotate(25deg); } 100% { transform: translateX(220%) rotate(25deg); } }
+/* base: container for effects */
+#run.btn.acc { position: relative; overflow: hidden; }
+
+/* shimmer layer (idle = hidden) */
+#run.btn.acc::after{
+  content:"";
+  position:absolute;
+  top:-120%; left:-30%;
+  width:60%; height:300%;
+  transform: rotate(25deg);
+  opacity:0;                       /* hidden when not loading */
+  background: linear-gradient(
+    to right,
+    rgba(255,255,255,0) 0%,
+    rgba(255,255,255,0.18) 50%,
+    rgba(255,255,255,0) 100%
+  );
+}
+
+/* show + animate ONLY when loading */
+#run.btn.acc.loading::after{
+  opacity:1;
+  animation: shimmer 1.2s linear infinite;
+}
+
+@keyframes shimmer {
+  0%   { transform: translateX(-120%) rotate(25deg); }
+  100% { transform: translateX(220%)  rotate(25deg); }
+}
+
+/* progress fill underneath label, only visible when .loading */
+#run{
+  --prog: 0;                 /* 0..100 */
+  position: relative;
+  overflow: hidden;
+}
+#run::before{
+  content:"";
+  position:absolute; inset:0;
+  background:
+    linear-gradient(90deg, #7c5cff33, #2da1ff33 50%, #19c37d33),
+    linear-gradient(180deg, rgba(255,255,255,.04), transparent);
+  transform: scaleX(calc(var(--prog) / 100));
+  transform-origin: left center;
+  transition: transform .35s ease, opacity .2s ease;
+  opacity:0;                  /* hidden when idle */
+  z-index:0;
+}
+#run.loading::before{ opacity:1; }   /* only when loading */
+#run .label, #run .spinner{ position: relative; z-index: 1; }
 
 
-  /* snellere shimmer wanneer loading */
-  #run.btn.acc.glass::after { animation: shimmer 2.8s linear infinite; opacity: 1; }
-  #run.btn.acc.loading.glass::after { animation-duration: 1.2s; }
+/* optional: subtle moving stripes when we don't have step info (indeterminate) */
+#run.loading.indet::after{
+  content: "";
+  position: absolute; inset: 0;
+  background:
+    linear-gradient(120deg,
+      transparent 0%,
+      rgba(255,255,255,.12) 45%,
+      rgba(255,255,255,.28) 50%,
+      rgba(255,255,255,.12) 55%,
+      transparent 100%);
+  animation: run-sweep 1.1s linear infinite;
+  z-index: 0;
+}
 
-  /* spinner in de knop */
-  #run .spinner{
-    display: none;
-    width: 14px; height: 14px;
-    margin-left: 10px;
-    border: 2px solid rgba(255,255,255,.35);
-    border-top-color: rgba(255,255,255,1);
-    border-radius: 50%;
-    animation: cw-spin 0.9s linear infinite;
-  }
-  #run.loading .spinner{ display:inline-block; }
+/* keep label/spinner above fills */
+#run .label, #run .spinner{ position: relative; z-index: 1; }
 
-  /* visuele cues bij loading */
-  #run.loading{
-    cursor: progress;
-    filter: brightness(1.02);
-  }
-  #run.loading .label::after{
-    content: "…";
-    font-weight: 800;
-  }
+@keyframes run-sweep {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
 
-  @keyframes cw-spin{ to { transform: rotate(360deg); } }
+/* DARK modern buttons (override) */
+.footer .btn{
+  padding: 12px 16px;
+  border-radius: 14px;
+  font-weight: 700;
+  transition: filter .15s ease, box-shadow .25s ease, transform .05s ease;
+}
 
-  .wl-del{ 
-    position:absolute; top:8px; left:8px; z-index:5; 
-  }
-  .pill.p-del{
-    color:#ffd8d8;
-    border-color: rgba(255,77,79,.45);
-    box-shadow: 0 0 14px rgba(255,77,79,.45);
-  }
+/* Save = very dark green */
+.footer .btn-save{
+  color: #d3ffe9;
+  background: linear-gradient(180deg,#0a1411,#08110e) !important;  /* darker */
+  border: 1px solid #144233 !important;                           /* deep green edge */
+  box-shadow: inset 0 1px 0 #0f1f19;                               /* subtle depth */
+}
+.footer .btn-save:hover{ filter: brightness(1.05); box-shadow: inset 0 1px 0 #142a22, 0 0 14px rgba(25,195,125,.15); }
+.footer .btn-save:active{ transform: translateY(1px); }
 
-.pill.p-del:hover{ filter:brightness(1.06); box-shadow:0 0 18px rgba(255,77,79,.60); }
-.pill.p-del:active{ transform:translateY(1px); }
+/* Exit = very dark red */
+.footer .btn-exit{
+  color: #ffd7d7;
+  background: linear-gradient(180deg,#150909,#100606) !important;  /* darker */
+  border: 1px solid #4a1417 !important;                            /* deep red edge */
+  box-shadow: inset 0 1px 0 #1a0c0d;
+}
+.footer .btn-exit:hover{ filter: brightness(1.05); box-shadow: inset 0 1px 0 #211013, 0 0 14px rgba(255,77,79,.15); }
+.footer .btn-exit:active{ transform: translateY(1px); }
+
+/* optional: small leading icon spacing if you use one */
+.footer .btn-ic{ margin-right:8px; opacity:.9; }
+
   
 </style>
 </head><body>
@@ -539,7 +587,7 @@ def get_index_html() -> str:
       <div class="sep"></div>
       <div class="action-row">
         <div class="action-buttons">
-          <button id="run" class="btn acc glass" onclick="runSync()"><span class="label">Synchronize</span><span class="spinner" aria-hidden="true"></span></button>
+          <button id="run" class="btn acc" onclick="runSync()"><span class="label">Synchronize</span><span class="spinner" aria-hidden="true"></span></button>
           <button class="btn" onclick="toggleDetails()">View details</button>
           <button class="btn" onclick="copySummary()">Copy summary</button>
           <button class="btn" onclick="downloadSummary()">Download report (JSON)</button>
@@ -743,8 +791,12 @@ def get_index_html() -> str:
     </div>
 
     <div class="footer">
-      <button class="btn" onclick="saveSettings()">Save</button>
-      <button class="btn" onclick="showTab('main')">Exit</button>
+      <button class="btn btn-save" onclick="saveSettings()">
+        <span class="btn-ic">✔</span> Save
+      </button>
+      <button class="btn btn-exit" onclick="showTab('main')">
+        <span class="btn-ic">↩</span> Exit
+      </button>
       <span id="save_msg" class="msg ok hidden">Settings saved ✓</span>
     </div>
   </section>
@@ -756,6 +808,9 @@ def get_index_html() -> str:
 </main>
 
 <script>
+
+  let lastStatusMs = 0;
+  const STATUS_MIN_INTERVAL = 120000; // 2 minutes (tweak to taste)
 
   // Compute the correct redirect URL for this webapp
   function computeRedirectURI(){ return location.origin + '/callback'; }
@@ -789,6 +844,46 @@ def get_index_html() -> str:
     // Call the loadWatchlist function to reload the updated posters
     await loadWatchlist();
   }
+
+// Set the progress percentage (0–100) on the Run button
+function setRunProgress(pct){
+  const btn = document.getElementById('run');
+  if (!btn) return;
+  const p = Math.max(0, Math.min(100, Math.floor(pct)));
+  btn.style.setProperty('--prog', String(p));
+}
+
+  // Turn on button visuals; indeterminate until we get timeline steps
+  function startRunVisuals(indeterminate = true){
+    const btn = document.getElementById('run');
+    if (!btn) return;
+    btn.classList.add('loading');
+    btn.classList.toggle('indet', !!indeterminate);
+    if (indeterminate) setRunProgress(8); // small head start
+  }
+
+  // Finish + reset visuals
+  function stopRunVisuals(){
+    const btn = document.getElementById('run');
+    if (!btn) return;
+    setRunProgress(100);
+    btn.classList.remove('indet');
+    setTimeout(() => {
+      btn.classList.remove('loading');
+      setRunProgress(0);
+    }, 700); // let users see the "100%" briefly
+  }
+
+  // Map timeline to progress fill
+  function updateProgressFromTimeline(tl){
+    const order = ['start','pre','post','done'];
+    let done = 0;
+    for (const k of order){ if (tl && tl[k]) done++; }
+    let pct = (done / order.length) * 100;
+    if (pct > 0 && pct < 15) pct = 15; // keep a bit of early movement
+    setRunProgress(pct);
+  }
+
 
   // Listen for changes in localStorage (other browsers)
   window.addEventListener('storage', (event) => {
@@ -953,59 +1048,81 @@ function logHTML(t){ const el=document.getElementById('log'); el.innerHTML += t 
   }
 
   function renderSummary(sum){
-  currentSummary = sum;
+    currentSummary = sum;
 
-  // <-- NIEUW: snapshot voor centrale disabled-logica
-  window._ui = window._ui || {};
-  window._ui.summary = sum;
+    // snapshot for central disabled-logic
+    window._ui = window._ui || {};
+    window._ui.summary = sum;
 
-  const pp = sum.plex_post ?? sum.plex_pre;
-  const sp = sum.simkl_post ?? sum.simkl_pre;
-  document.getElementById('chip-plex').textContent = (pp ?? '–');
-  document.getElementById('chip-simkl').textContent = (sp ?? '–');
-  document.getElementById('chip-dur').textContent = sum.duration_sec != null ? (sum.duration_sec + 's') : '–';
-  document.getElementById('chip-exit').textContent = sum.exit_code != null ? String(sum.exit_code) : '–';
+    const pp = sum.plex_post ?? sum.plex_pre;
+    const sp = sum.simkl_post ?? sum.simkl_pre;
+    document.getElementById('chip-plex').textContent  = (pp ?? '–');
+    document.getElementById('chip-simkl').textContent = (sp ?? '–');
+    document.getElementById('chip-dur').textContent   = sum.duration_sec != null ? (sum.duration_sec + 's') : '–';
+    document.getElementById('chip-exit').textContent  = sum.exit_code  != null ? String(sum.exit_code)   : '–';
 
-  if (sum.running){
-    setSyncHeader('sync-warn', 'Running…');
-  } else if (sum.exit_code === 0){
-    setSyncHeader('sync-ok', (sum.result||'').toUpperCase()==='EQUAL' ? 'In sync ' : 'Synced ');
-  } else if (sum.exit_code != null){
-    setSyncHeader('sync-bad', 'Attention needed ⚠️');
-  } else {
-    setSyncHeader('sync-warn', 'Idle — run a sync to see results');
+    if (sum.running){
+      setSyncHeader('sync-warn', 'Running…');
+    } else if (sum.exit_code === 0){
+      setSyncHeader('sync-ok', (sum.result||'').toUpperCase()==='EQUAL' ? 'In sync ' : 'Synced ');
+    } else if (sum.exit_code != null){
+      setSyncHeader('sync-bad', 'Attention needed ⚠️');
+    } else {
+      setSyncHeader('sync-warn', 'Idle — run a sync to see results');
+    }
+
+    document.getElementById('det-cmd').textContent    = sum.cmd        || '–';
+    document.getElementById('det-ver').textContent    = sum.version    || '–';
+    document.getElementById('det-start').textContent  = sum.started_at || '–';
+    document.getElementById('det-finish').textContent = sum.finished_at|| '–';
+
+    // ---- timeline & button progress ----
+    const tl = sum.timeline || {};
+    setTimeline(tl);                 // your existing dots
+    updateProgressFromTimeline?.(tl);// fill the button based on steps
+
+    const btn = document.getElementById('run');
+    if (btn){
+      if (sum.running){
+        // turn on loading visuals
+        btn.classList.add('glass','loading');
+
+        // if we have step info -> determinate, otherwise show indeterminate sweep
+        if (tl.pre || tl.post || tl.done) btn.classList.remove('indet');
+        else                               btn.classList.add('indet');
+
+        // give a tiny head start when a run just began (nice UX)
+        if (!_wasRunning && !(tl.pre || tl.post || tl.done)) { setRunProgress?.(8); }
+      } else {
+        // run ended
+        if (_wasRunning){
+          setRunProgress?.(100);
+          btn.classList.remove('indet');
+          // let users see 100% briefly, then reset button
+          setTimeout(()=>{
+            btn.classList.remove('loading','glass');
+            setRunProgress?.(0);
+          }, 700);
+        } else {
+          // already idle
+          btn.classList.remove('loading','indet','glass');
+          setRunProgress?.(0);
+        }
+      }
+    }
+
+    // recompute disabled state in one place
+    if (typeof recomputeRunDisabled === 'function') recomputeRunDisabled();
+
+    // when transitioning running -> not running, refresh posters & scheduler text
+    if (_wasRunning && !sum.running) {
+      window.wallLoaded = false;
+      updatePreviewVisibility?.();
+      loadWatchlist?.();
+      refreshSchedulingBanner?.();
+    }
+    _wasRunning = !!sum.running;
   }
-
-  document.getElementById('det-cmd').textContent = sum.cmd || '–';
-  document.getElementById('det-ver').textContent = sum.version || '–';
-  document.getElementById('det-start').textContent = sum.started_at || '–';
-  document.getElementById('det-finish').textContent = sum.finished_at || '–';
-  setTimeline(sum.timeline || {});
-
-  const btn = document.getElementById('run');
-  if (btn){
-    if (sum.running) btn.classList.add('glass');
-    else btn.classList.remove('glass');
-  }
-  // disabled-toestand op 1 plek bepalen
-  if (typeof recomputeRunDisabled === 'function') recomputeRunDisabled();
-
-  // When we transition from running -> not running, refresh posters
-  if (_wasRunning && !sum.running) {
-    // force the main preview to rebuild (resets wallLoaded and loads fresh)
-    window.wallLoaded = false;
-    updatePreviewVisibility?.();  // triggers loadWall() on Main if TMDb key is set
-
-    // refresh the watchlist grid too
-    loadWatchlist?.();
-
-    // keep the inline scheduler text fresh
-    refreshSchedulingBanner?.();
-  }
-  _wasRunning = !!sum.running;
-
-}
-
 
   function openSummaryStream(){
     esSum = new EventSource('/api/run/summary/stream');
@@ -1097,22 +1214,31 @@ function logHTML(t){ const el=document.getElementById('log'); el.innerHTML += t 
   
   function downloadSummary(){ window.open('/api/run/summary/file', '_blank'); }
 
-  async function refreshStatus(){
-    const r = await fetch('/api/status').then(r=>r.json());
+  async function refreshStatus(force = false){
+    const now = Date.now();
+    if (!force && now - lastStatusMs < STATUS_MIN_INTERVAL) return;
+    lastStatusMs = now;
+
+    const r = await fetch('/api/status' + (force ? '?fresh=1' : '')).then(r=>r.json());
     appDebug = !!r.debug;
-    const pb = document.getElementById('badge-plex'); const sb = document.getElementById('badge-simkl');
-    pb.className = 'badge ' + (r.plex_connected?'ok':'no');
+
+    const pb = document.getElementById('badge-plex');
+    const sb = document.getElementById('badge-simkl');
+    pb.className = 'badge ' + (r.plex_connected ? 'ok' : 'no');
     pb.innerHTML = `<span class="dot ${r.plex_connected?'ok':'no'}"></span>Plex: ${r.plex_connected?'Connected':'Not connected'}`;
-    sb.className = 'badge ' + (r.simkl_connected?'ok':'no');
+    sb.className = 'badge ' + (r.simkl_connected ? 'ok' : 'no');
     sb.innerHTML = `<span class="dot ${r.simkl_connected?'ok':'no'}"></span>SIMKL: ${r.simkl_connected?'Connected':'Not connected'}`;
-    window._ui.status = {can_run: !!r.can_run,plex_connected: !!r.plex_connected,simkl_connected: !!r.simkl_connected};
 
+    window._ui.status = { can_run: !!r.can_run, plex_connected: !!r.plex_connected, simkl_connected: !!r.simkl_connected };
     recomputeRunDisabled();
-
+    
     const onMain = !document.getElementById('ops-card').classList.contains('hidden');
-    const logPanel = document.getElementById('log-panel'); const layout = document.getElementById('layout');
-    logPanel.classList.toggle('hidden', !(appDebug && onMain)); layout.classList.toggle('full', onMain && !appDebug);
+    const logPanel = document.getElementById('log-panel');
+    const layout = document.getElementById('layout');
+    logPanel.classList.toggle('hidden', !(appDebug && onMain));
+    layout.classList.toggle('full', onMain && !appDebug);
   }
+
 
   async function loadConfig(){
     const cfg = await fetch('/api/config').then(r=>r.json());
@@ -1147,42 +1273,69 @@ function logHTML(t){ const el=document.getElementById('log'); el.innerHTML += t 
       ? structuredClone(serverCfg)
       : JSON.parse(JSON.stringify(serverCfg || {}));
 
+    let changed = false;
+
     // --- SYNC ---
-    cfg.sync = cfg.sync || {};
-    cfg.sync.bidirectional = cfg.sync.bidirectional || {};
     const uiMode   = document.getElementById('mode').value;
     const uiSource = document.getElementById('source').value;
-    cfg.sync.bidirectional.mode = uiMode;
-    cfg.sync.bidirectional.source_of_truth = uiSource;
+    const prevMode   = serverCfg?.sync?.bidirectional?.mode || 'two-way';
+    const prevSource = serverCfg?.sync?.bidirectional?.source_of_truth || 'plex';
+    if (uiMode !== prevMode) {
+      cfg.sync = cfg.sync || {}; cfg.sync.bidirectional = cfg.sync.bidirectional || {};
+      cfg.sync.bidirectional.mode = uiMode; changed = true;
+    }
+    if (uiSource !== prevSource) {
+      cfg.sync = cfg.sync || {}; cfg.sync.bidirectional = cfg.sync.bidirectional || {};
+      cfg.sync.bidirectional.source_of_truth = uiSource; changed = true;
+    }
 
     // --- RUNTIME ---
-    cfg.runtime = cfg.runtime || {};
-    cfg.runtime.debug = (document.getElementById('debug').value === 'true');
+    const uiDebug  = (document.getElementById('debug').value === 'true');
+    const prevDebug = !!serverCfg?.runtime?.debug;
+    if (uiDebug !== prevDebug) {
+      cfg.runtime = cfg.runtime || {};
+      cfg.runtime.debug = uiDebug; changed = true;
+    }
 
     // --- PLEX ---
-    cfg.plex = cfg.plex || {};
     const uiPlexToken = (document.getElementById('plex_token').value || '').trim();
-    if (uiPlexToken) cfg.plex.account_token = uiPlexToken;
+    const prevPlexTok = serverCfg?.plex?.account_token || '';
+    if (uiPlexToken && uiPlexToken !== prevPlexTok) {
+      cfg.plex = cfg.plex || {};
+      cfg.plex.account_token = uiPlexToken; changed = true;
+    }
 
     // --- SIMKL ---
-    cfg.simkl = cfg.simkl || {};
     const uiCid = (document.getElementById('simkl_client_id').value || '').trim();
     const uiSec = (document.getElementById('simkl_client_secret').value || '').trim();
-    if (uiCid) cfg.simkl.client_id = uiCid;
-    if (uiSec) cfg.simkl.client_secret = uiSec;
+    const prevCid = serverCfg?.simkl?.client_id || '';
+    const prevSec = serverCfg?.simkl?.client_secret || '';
+    if (uiCid && uiCid !== prevCid) {
+      cfg.simkl = cfg.simkl || {};
+      cfg.simkl.client_id = uiCid; changed = true;
+    }
+    if (uiSec && uiSec !== prevSec) {
+      cfg.simkl = cfg.simkl || {};
+      cfg.simkl.client_secret = uiSec; changed = true;
+    }
     // (access_token not modified here)
 
     // --- TMDb ---
-    cfg.tmdb = cfg.tmdb || {};
     const uiTmdb = (document.getElementById('tmdb_api_key').value || '').trim();
-    if (uiTmdb) cfg.tmdb.api_key = uiTmdb;
+    const prevTmdb = serverCfg?.tmdb?.api_key || '';
+    if (uiTmdb && uiTmdb !== prevTmdb) {
+      cfg.tmdb = cfg.tmdb || {};
+      cfg.tmdb.api_key = uiTmdb; changed = true;
+    }
 
-    // 2) Save general config
-    await fetch('/api/config', {
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body: JSON.stringify(cfg)
-    });
+    // 2) Save general config only if something changed
+    if (changed){
+      await fetch('/api/config', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify(cfg)
+      });
+    }
 
     // 2b) Save Scheduling with the same Save button
     try {
@@ -1201,10 +1354,11 @@ function logHTML(t){ const el=document.getElementById('log'); el.innerHTML += t 
       console.warn('Failed to save scheduling', e);
     }
 
-    // 3) UI refreshes
+    // 3) UI refreshes (force a fresh status once; backend can memoize probes)
     updateSimklButtonState?.();
+    updateSimklHint?.();
     updateTmdbHint?.();
-    await refreshStatus();
+    await refreshStatus(true);           // <-- force = true to avoid cached status
     refreshSchedulingBanner?.();
     await updateWatchlistTabVisibility?.();
 

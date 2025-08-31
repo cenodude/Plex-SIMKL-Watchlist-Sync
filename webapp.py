@@ -61,6 +61,9 @@ FAVICON_SVG = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
 <path d="M20 30 L32 26 L44 22" fill="none" stroke="url(#g)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
 </svg>"""
 
+# --- /api/status memoization ---
+STATUS_CACHE = {"ts": 0.0, "data": None}
+STATUS_TTL = 3600  # 60 minutes
 
 # ---------- Paths (Docker-aware) ----------
 # If running from /app (typical inside a container), store config, cache, and reports under /config.
@@ -682,12 +685,35 @@ INDEX_HTML = get_index_html()
 def index() -> HTMLResponse:
     return HTMLResponse(INDEX_HTML)
 
+import time
+from fastapi import Query
+from fastapi.responses import JSONResponse
+
 @app.get("/api/status")
-def api_status() -> Dict[str, Any]:
+def api_status(fresh: int = Query(0)):
+    now = time.time()
+    cached = STATUS_CACHE["data"]
+    age = (now - STATUS_CACHE["ts"]) if cached else 1e9
+
+    # If we have a recent cache and not forcing, just return it (0 external calls)
+    if not fresh and cached and age < STATUS_TTL:
+        return JSONResponse(cached, headers={"Cache-Control": "no-store"})
+
+    # Otherwise (fresh=1 OR cache expired/missing), do at most two external probes
     cfg = load_config()
-    plex_ok, simkl_ok, debug = connected_status(cfg)
-    can_run = plex_ok and simkl_ok
-    return {"plex_connected": plex_ok, "simkl_connected": simkl_ok, "can_run": can_run, "debug": debug}
+    plex_ok  = probe_plex(cfg,  max_age_sec=STATUS_TTL)   # pass 3600 to internal probe cache too
+    simkl_ok = probe_simkl(cfg, max_age_sec=STATUS_TTL)
+    debug    = bool(cfg.get("runtime", {}).get("debug"))
+    data = {
+        "plex_connected": plex_ok,
+        "simkl_connected": simkl_ok,
+        "debug": debug,
+        "can_run": bool(plex_ok and simkl_ok),
+        "ts": int(now),
+    }
+    STATUS_CACHE["ts"] = now
+    STATUS_CACHE["data"] = data
+    return JSONResponse(data, headers={"Cache-Control": "no-store"})
 
 @app.get("/api/config")
 def api_config() -> JSONResponse:

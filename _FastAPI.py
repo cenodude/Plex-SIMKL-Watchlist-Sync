@@ -775,7 +775,9 @@ def get_index_html() -> str:
             <div class="grid2">
               <div style="grid-column:1 / -1">
                 <label>API key</label>
-                <input id="tmdb_api_key" placeholder="Your TMDb API key" oninput="updateTmdbHint()">
+                <input id="tmdb_api_key" placeholder="Your TMDb API key"
+                       oninput="this.dataset.dirty='1'; updateTmdbHint()">
+
                 <div id="tmdb_hint" class="msg warn hidden">
                   TMDb is optional but recommended to enrich posters & metadata in the preview.
                   Get an API key at
@@ -1411,7 +1413,7 @@ function logHTML(t){ const el=document.getElementById('log'); el.innerHTML += t 
         if (!span) return;
         if (j && j.config && j.config.enabled) {
           const nextRun = j.next_run_at ? new Date(j.next_run_at*1000).toLocaleString() : '—';
-          span.textContent = `-   Scheduler running (next ${nextRun})`;
+          span.textContent = `—   Scheduler running (next ${nextRun})`;
           span.style.display = 'inline';
         } else {
           span.textContent = '';
@@ -1446,29 +1448,44 @@ function logHTML(t){ const el=document.getElementById('log'); el.innerHTML += t 
   }
 
   // ---- Hints / Validation ----
+  // TMDb hint: local-first after user starts typing; server check only on first open.
+  // Runs only when the Settings page is visible.
+
   async function updateTmdbHint(){
     const hint  = document.getElementById('tmdb_hint');
     const input = document.getElementById('tmdb_api_key');
     if (!hint || !input) return;
 
+    // Only when Settings is visible (prevents side-effects on Main)
+    const settingsVisible = !document.getElementById('page-settings')?.classList.contains('hidden');
+    if (!settingsVisible) return;
+
     const v = (input.value || '').trim();
-    if (v){                         // user already typed / field filled
-      hint.classList.add('hidden');
+
+    // If the user is actively typing here, mark as dirty
+    if (document.activeElement === input) input.dataset.dirty = '1';
+
+    // If user edited the field, trust local value only (no fetch = no flicker)
+    if (input.dataset.dirty === '1'){
+      hint.classList.toggle('hidden', !!v);
       return;
     }
 
-    // Field is empty — double-check saved config on the server
+    // First open: if field has text, hide; otherwise peek server once
+    if (v){
+      hint.classList.add('hidden');
+      return;
+    }
     try {
       const cfg = await fetch('/api/config', { cache: 'no-store' }).then(r => r.json());
       const has = !!((cfg.tmdb?.api_key || '').trim());
       hint.classList.toggle('hidden', has);
     } catch {
-      // If we can’t reach the server, err on the side of showing the hint
-      hint.classList.remove('hidden');
+      hint.classList.remove('hidden'); // show hint if we can’t confirm
     }
   }
 
-
+  
   // PLEX
   async function requestPlexPin(){
     setPlexSuccess(false);

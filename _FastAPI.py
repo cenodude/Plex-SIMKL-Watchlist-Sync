@@ -355,6 +355,32 @@ def get_index_html() -> str:
     flex-wrap: wrap;
   }
 
+  /* feedback for copy buttons */
+  .btn.copied {
+    box-shadow: 0 0 0 6px rgba(46, 204, 113, 0.15);
+    position: relative;
+  }
+
+  .btn.copied::after {
+    content: "Copied!";
+    position: absolute;
+    top: -28px;
+    right: 0;
+    background: #2ecc71;
+    color: #111;
+    padding: 2px 8px;
+    border-radius: 6px;
+    font-size: 12px;
+    animation: pop-fade 900ms ease forwards;
+  }
+
+  @keyframes pop-fade {
+    0%   { transform: translateY(6px) scale(0.9); opacity: 0; }
+    20%  { transform: translateY(0)   scale(1);   opacity: 1; }
+    70%  { opacity: 1; }
+    100% { transform: translateY(-2px) scale(0.98); opacity: 0; }
+  }
+
   /* Run button visual feedback */
   #run.btn.acc { position: relative; overflow: hidden; }
   #run.btn.acc::after{
@@ -574,30 +600,45 @@ def get_index_html() -> str:
     </div>
 
     <div class="section" id="sec-auth">
-      <div class="head" onclick="toggleSection('sec-auth')"><span class="chev">▶</span><strong>Authentication</strong></div>
+      <div class="head" onclick="toggleSection('sec-auth')">
+        <span class="chev">▶</span><strong>Authentication</strong>
+      </div>
       <div class="body">
         <!-- PLEX -->
         <div class="section" id="sec-plex">
-          <div class="head" onclick="toggleSection('sec-plex')"><span class="chev">▶</span><strong>Plex</strong></div>
+          <div class="head" onclick="toggleSection('sec-plex')">
+            <span class="chev">▶</span><strong>Plex</strong>
+          </div>
           <div class="body">
             <div class="grid2">
               <div>
                 <label>Current token</label>
                 <div style="display:flex;gap:8px">
                   <input id="plex_token" placeholder="empty = not set">
-                  <button class="btn" onclick="copyField('plex_token', this)">Copy</button>
+                  <button id="btn-copy-plex-token" class="btn copy" onclick="copyInputValue('plex_token', this)">Copy</button>
                 </div>
               </div>
               <div>
                 <label>PIN</label>
-                <div style="display:flex;gap:8px"><input id="plex_pin" placeholder="request to fill" readonly><button class="btn" onclick="copyField('plex_pin', this)">Copy</button></div>
+                <div style="display:flex;gap:8px">
+                  <input id="plex_pin" placeholder="request to fill" readonly>
+                  <button id="btn-copy-plex-pin"   class="btn copy" onclick="copyInputValue('plex_pin', this)">Copy</button>
+                </div>
               </div>
             </div>
-            <div style="display:flex;gap:8px"><button class="btn" onclick="requestPlexPin()">Request Token</button><div style="align-self:center;color:var(--muted)">Opens plex.tv/link (PIN copied to clipboard)</div></div>
+            <div style="display:flex;gap:8px">
+              <button class="btn" onclick="requestPlexPin()">Request Token</button>
+              <div style="align-self:center;color:var(--muted)">
+                Opens plex.tv/link (PIN copied to clipboard)
+              </div>
+            </div>
             <div id="plex_msg" class="msg ok hidden">Successfully retrieved token</div>
             <div class="sep"></div>
           </div>
         </div>
+      </div>
+    </div>
+
 
         <!-- SIMKL -->
         <div class="section" id="sec-simkl">
@@ -1323,26 +1364,44 @@ def get_index_html() -> str:
   }
 
   /* Plex auth (PIN flow) */
-  function setPlexSuccess(show){ document.getElementById('plex_msg').classList.toggle('hidden', !show); }
+  /* Plex auth (PIN flow) */
+  function setPlexSuccess(show){
+    document.getElementById('plex_msg').classList.toggle('hidden', !show);
+  }
+
   async function requestPlexPin(){
     setPlexSuccess(false);
-    const r = await fetch('/api/plex/pin/new', {method:'POST'}); const j = await r.json();
+    const r = await fetch('/api/plex/pin/new', {method:'POST'});
+    const j = await r.json();
     if(!j.ok){ return; }
+
     document.getElementById('plex_pin').value = j.code;
     try{ await navigator.clipboard.writeText(j.code); }catch(_){}
     window.open('https://plex.tv/link', '_blank');
+
     if(plexPoll) { clearInterval(plexPoll); }
     let ticks = 0;
+
     plexPoll = setInterval(async ()=>{
       ticks++;
-      const cfg = await fetch('/api/config').then(r=>r.json()).catch(()=>null);
+      const cfg = await fetch('/api/config', { cache: 'no-store' })
+        .then(r=>r.json()).catch(()=>null);
       const tok = cfg?.plex?.account_token || '';
-      if(tok){
-        document.getElementById('plex_token').value = tok; setPlexSuccess(true); await refreshStatus(); clearInterval(plexPoll);
+
+      const el = document.getElementById('plex_token');
+      if (tok && el && el.value !== tok) {
+        // Polling Current token until it changes
+        el.value = tok;
+        setPlexSuccess(true);
+        await refreshStatus();
+        clearInterval(plexPoll);
       }
+
       if(ticks > 360){ clearInterval(plexPoll); }
     }, 1000);
   }
+
+
 
   /* SIMKL auth */
   function setSimklSuccess(show){ document.getElementById('simkl_msg').classList.toggle('hidden', !show); }
@@ -1375,6 +1434,47 @@ def get_index_html() -> str:
       if(ticks > 600){ clearInterval(simklPoll); }
     }, 1000);
   }
+  // triggered by a real click only
+  async function copyInputValue(inputId, btnEl) {
+    const el = document.getElementById(inputId);
+    const val = el?.value?.trim() || "";
+    if (!val) return;
+
+    try {
+      // Modern, secure-context path (localhost/127.0.0.1 is ok in moderne browsers)
+      await navigator.clipboard.writeText(val);
+      flashBtnOK(btnEl);
+    } catch (e) {
+      // Fallback for older/locked-down contexts
+      const ta = document.createElement('textarea');
+      ta.value = val;
+      ta.setAttribute('readonly', '');
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      try { document.execCommand('copy'); flashBtnOK(btnEl); } catch(_) {}
+      document.body.removeChild(ta);
+    }
+  }
+
+  function flashBtnOK(btnEl){
+    if (!btnEl) return;
+    btnEl.disabled = true;
+    btnEl.classList.add('copied');      // optional style hook
+    setTimeout(() => { 
+      btnEl.classList.remove('copied'); 
+      btnEl.disabled = false; 
+    }, 700);
+  }
+
+  // Wire up buttons once the DOM is ready (no layout changes)
+  document.addEventListener('DOMContentLoaded', () => {
+    document.getElementById('btn-copy-plex-pin')
+      ?.addEventListener('click', (e) => copyInputValue('plex_pin', e.currentTarget));
+    document.getElementById('btn-copy-plex-token')
+      ?.addEventListener('click', (e) => copyInputValue('plex_token', e.currentTarget));
+  });
 
   /* ====== Poster carousel helpers ====== */
   function updateEdges(){

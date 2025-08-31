@@ -564,6 +564,29 @@ async def cache_headers_for_api(request: Request, call_next):
         resp.headers["Expires"] = "0"
     return resp
 
+from fastapi import Query
+from fastapi.responses import StreamingResponse
+
+@app.get("/api/logs/stream")
+def api_logs_stream(tag: str = Query("SYNC")):
+    tag = (tag or "SYNC").upper()
+
+    def gen():
+        # dump existing lines first
+        buf = LOG_BUFFERS.get(tag, [])
+        for line in buf:
+            yield f"data: {line}\n\n"
+        # then follow new lines
+        idx = len(buf)
+        while True:
+            new_buf = LOG_BUFFERS.get(tag, [])
+            while idx < len(new_buf):
+                yield f"data: {new_buf[idx]}\n\n"
+                idx += 1
+            time.sleep(0.25)
+
+    return StreamingResponse(gen(), media_type="text/event-stream", headers={"Cache-Control":"no-store"})
+
 # --- Watchlist API (grid page) ---
 @app.get("/api/watchlist")
 def api_watchlist() -> JSONResponse:

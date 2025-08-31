@@ -24,6 +24,94 @@ def get_index_html() -> str:
     font:14px/1.5 ui-sans-serif,system-ui,Segoe UI,Roboto;
   }
 
+  #ops-card.card{
+    /* option A: more breathing room via padding */
+    padding-block: 20px 38px;   /* top / bottom */
+
+    /* option B (fixed floor): uncomment to enforce a minimum height */
+    /* min-height: 260px; */
+  }
+
+  /* Right meta card */
+  .det-right{ position: sticky; top: 8px; align-self: start; }
+
+  .meta-card{
+    background: #0a0a17;
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 12px;
+    box-shadow: 0 0 22px rgba(0,0,0,.25) inset;
+  }
+
+  .meta-grid{
+    display: grid;
+    grid-template-columns: auto 1fr;
+    column-gap: 10px;
+    row-gap: 8px;
+    align-items: center;
+  }
+
+  .meta-label{
+    font-size: 11px;
+    letter-spacing: .08em;
+    color: var(--muted);
+    text-transform: uppercase;
+    text-align: right;
+    user-select: none;
+  }
+
+  .meta-value{ min-width: 0; }               /* allow truncation */
+  .pillvalue{
+    display: inline-flex;
+    align-items: center;
+    padding: 3px 8px;
+    border-radius: 999px;
+    background: #0b0b16aa;
+    border: 1px solid #ffffff1a;
+    font-weight: 700;
+    font-size: 12px;
+    line-height: 1.2;
+  }
+
+  .truncate{
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .mono{
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .meta-actions{
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+    margin-top: 12px;
+  }
+
+  /* keep two-column details layout */
+  .details-grid{
+    display: grid;
+    grid-template-columns: minmax(0,1fr) 320px;  /* left grows, right fixed */
+    gap: 16px;
+    align-items: stretch;                        /* <-- equal heights */
+  }
+  @media (max-width: 900px){
+    .details-grid{ grid-template-columns: 1fr; }
+    .det-right{ position: static; }
+  }
+
+  /* Columns as vertical flex stacks */
+  .det-left,
+  .det-right{
+    display: flex;
+    flex-direction: column;
+    min-height: 0;                               /* avoid overflow in flex */
+  }
+
   /* Header */
   header{
     position:sticky;top:0;z-index:10;
@@ -74,6 +162,9 @@ def get_index_html() -> str:
   main.full{grid-template-columns:1fr}
   main.single{grid-template-columns:1fr}
   #ops-card{grid-column:1} #placeholder-card{grid-column:1} #log-panel{grid-column:2; align-self:start}
+  #ops-card .chiprow{ margin-bottom: 20px; }     /* was ~8px */
+  #ops-card .sep{ margin: 6px 0 16px; }          /* pushes the buttons down a bit */
+  #ops-card .action-row{ margin-top: 0; }        /* ensure no extra collapse */
 
   /* Hide the title captions under posters */
   .cap, .wl-cap { display: none !important; }
@@ -181,6 +272,19 @@ def get_index_html() -> str:
   .msg.ok{background:rgba(25,195,125,.12);border-color:rgba(25,195,125,.35);color:#c8ffe6}
   .msg.warn{background:rgba(255,196,0,.10);border-color:rgba(255,196,0,.35);color:#ffe28a}
   .muted{color:var(--muted)} code{padding:2px 6px;border:1px solid var(--border);border-radius:8px;background:#0a0a17}
+
+  .details-grid{
+    display:grid;
+    grid-template-columns:minmax(0,1fr) 300px;
+    gap:14px;
+  }
+  #det-log{
+    min-height:220px;
+    max-height:55vh;
+  }
+  @media (max-width: 900px){
+    .details-grid{ grid-template-columns: 1fr; }
+  }
 
   /* Footer buttons – consistent neon style */
   .footer{display:flex;gap:10px;align-items:center;margin-top:8px}
@@ -449,12 +553,38 @@ def get_index_html() -> str:
       </div>
 
       <div id="details" class="details hidden">
-        <div><b>Command:</b> <code id="det-cmd">–</code></div>
-        <div><b>Version:</b> <code id="det-ver">–</code></div>
-        <div><b>Started:</b> <span id="det-start">–</span></div>
-        <div><b>Finished:</b> <span id="det-finish">–</span></div>
+        <div class="details-grid">
+          <!-- LEFT: live output from plex_simkl_watchlist_sync.py -->
+          <div class="det-left">
+            <div class="title" style="margin-bottom:6px;font-weight:700">Sync output</div>
+            <pre id="det-log" class="log"></pre>
+          </div>
+
+        <!-- RIGHT: run metadata -->
+        <div class="det-right">
+          <div class="meta-card">
+            <div class="meta-grid">
+              <div class="meta-label">Command</div>
+              <div class="meta-value"><span id="det-cmd" class="pillvalue truncate">–</span></div>
+
+              <div class="meta-label">Version</div>
+              <div class="meta-value"><span id="det-ver" class="pillvalue">–</span></div>
+
+              <div class="meta-label">Started</div>
+              <div class="meta-value"><span id="det-start" class="pillvalue mono">–</span></div>
+
+              <div class="meta-label">Finished</div>
+              <div class="meta-value"><span id="det-finish" class="pillvalue mono">–</span></div>
+            </div>
+
+            <div class="meta-actions">
+              <button class="btn" onclick="copySummary()">Copy summary</button>
+              <button class="btn" onclick="downloadSummary()">Download</button>
+            </div>
+          </div>
+        </div>
       </div>
-    </div>
+
   </section>
 
   <!-- MAIN: Poster carousel -->
@@ -510,10 +640,6 @@ def get_index_html() -> str:
           <div><label>Every N hours</label><input id="schN" type="number" min="1" max="24" value="2"></div>
           <div><label>Time</label><input id="schTime" type="time" value="03:30"></div>
         </div>
-        <div class="footer" style="margin-top:0">
-          <button class="btn" onclick="saveScheduling()">Save scheduling</button>
-          <span id="schStatus" class="msg ok hidden">Saved ✓</span>
-        </div>
       </div>
     </div>
 
@@ -541,7 +667,11 @@ def get_index_html() -> str:
             <div class="grid2">
               <div>
                 <label>Current token</label>
-                <div style="display:flex;gap:8px"><input id="plex_token" placeholder="empty = not set"><button class="btn" onclick="copyField('plex_token')">Copy</button></div>
+                <div style="display:flex;gap:8px">
+                  <input id="plex_token" placeholder="empty = not set">
+                  <button class="btn" onclick="copyField('plex_token', this)">Copy</button>
+                </div>
+
               </div>
               <div>
                 <label>PIN</label>
@@ -559,21 +689,36 @@ def get_index_html() -> str:
           <div class="head" onclick="toggleSection('sec-simkl')"><span class="chev">▶</span><strong>SIMKL</strong></div>
           <div class="body">
             <div class="grid2">
-              <div><label>Client ID</label><input id="simkl_client_id" placeholder="Your SIMKL client id" oninput="updateSimklButtonState()"></div>
-              <div><label>Client Secret</label><input id="simkl_client_secret" placeholder="Your SIMKL client secret" oninput="updateSimklButtonState()"></div>
+              <div>
+                <label>Client ID</label>
+                <input id="simkl_client_id" placeholder="Your SIMKL client id" oninput="updateSimklButtonState(); updateSimklHint();">
+              </div>
+              <div>
+                <label>Client Secret</label>
+                <input id="simkl_client_secret" placeholder="Your SIMKL client secret" oninput="updateSimklButtonState(); updateSimklHint();">
+              </div>
             </div>
+
             <div id="simkl_hint" class="msg warn hidden">
               You need a SIMKL API key. Create one at
               <a href="https://simkl.com/settings/developer/" target="_blank" rel="noopener">SIMKL Developer</a>.
               Set the Redirect URL to <code id="redirect_uri_preview"></code>.
               <button class="btn" style="margin-left:8px" onclick="copyRedirect()">Copy Redirect URL</button>
             </div>
-            <div style="display:flex;gap:8px;margin-top:8px"><button id="simkl_start_btn" class="btn" onclick="startSimkl()" disabled>Start SIMKL Auth</button><div style="align-self:center;color:var(--muted)">Opens SIMKL authorize, callback to this webapp</div></div>
-            <div class="grid2" style="margin-top:8px"><div><label>Access token</label><input id="simkl_access_token" readonly placeholder="empty = not set"></div></div>
+
+            <div style="display:flex;gap:8px;margin-top:8px">
+              <button id="simkl_start_btn" class="btn" onclick="startSimkl()" disabled>Start SIMKL Auth</button>
+              <div style="align-self:center;color:var(--muted)">Opens SIMKL authorize, callback to this webapp</div>
+            </div>
+
+            <div class="grid2" style="margin-top:8px">
+              <div><label>Access token</label><input id="simkl_access_token" readonly placeholder="empty = not set"></div>
+            </div>
             <div id="simkl_msg" class="msg ok hidden">Successfully retrieved token</div>
             <div class="sep"></div>
           </div>
         </div>
+
 
         <!-- TMDb -->
         <div class="section" id="sec-tmdb">
@@ -611,6 +756,34 @@ def get_index_html() -> str:
 </main>
 
 <script>
+
+  // Compute the correct redirect URL for this webapp
+  function computeRedirectURI(){ return location.origin + '/callback'; }
+
+  function updateSimklButtonState(){
+    const id  = (document.getElementById('simkl_client_id')?.value || '').trim();
+    const sec = (document.getElementById('simkl_client_secret')?.value || '').trim();
+    const btn = document.getElementById('simkl_start_btn');
+    if (btn) btn.disabled = !(id && sec);
+  }
+
+  // Hide SIMKL hint if client/secret exist locally OR in saved config.
+  // Also keeps the Redirect URL preview in sync.
+  function updateSimklHint(){
+    const hint = document.getElementById('simkl_hint');
+    if (!hint) return;
+
+    const prev = document.getElementById('redirect_uri_preview');
+    if (prev) prev.textContent = computeRedirectURI();
+
+    const idVal  = (document.getElementById('simkl_client_id')?.value  || '').trim();
+    const secVal = (document.getElementById('simkl_client_secret')?.value || '').trim();
+
+    // local-first: no fetch; no flicker
+    const bothFilled = !!idVal && !!secVal;
+    hint.classList.toggle('hidden', bothFilled);
+  }
+
   // Function to update the watchlist preview
   async function updateWatchlistPreview() {
     // Call the loadWatchlist function to reload the updated posters
@@ -634,13 +807,12 @@ def get_index_html() -> str:
     const logPanel = document.getElementById('log-panel');
     const layout = document.getElementById('layout');
 
-    // Toggle active state on tabs
+    // Tabs active state
     document.getElementById('tab-main').classList.toggle('active', n === 'main');
-    // CENODUDE WATCHLIST DISABLE     document.getElementById('tab-watchlist').classList.toggle('active', n === 'watchlist');
-    document.getElementById('tab-watchlist').style.display = 'none';
+    document.getElementById('tab-watchlist').classList.toggle('active', n === 'watchlist');
     document.getElementById('tab-settings').classList.toggle('active', n === 'settings');
 
-    // Toggle visibility of sections based on the selected tab
+    // Sections visibility
     document.getElementById('ops-card').classList.toggle('hidden', n !== 'main');
     document.getElementById('placeholder-card').classList.toggle('hidden', n !== 'main');
     pageWatchlist.classList.toggle('hidden', n !== 'watchlist');
@@ -651,28 +823,33 @@ def get_index_html() -> str:
       refreshStatus();
       layout.classList.toggle('full', !appDebug);
       if (!esSum) { openSummaryStream(); }
-
-      // Refresh poster views when switching to Main tab
-      await updatePreviewVisibility();  // Load the posters for Main view
+      await updatePreviewVisibility();    // Load posters for Main
       refreshSchedulingBanner();
     } else if (n === 'watchlist') {
       layout.classList.add('single');
       layout.classList.remove('full');
       logPanel.classList.add('hidden');
-
-      // Refresh the Watchlist poster grid when switching to Watchlist tab
-      loadWatchlist();  // Reload the watchlist grid whenever the tab is selected
-    } else {
+      loadWatchlist();                    // Rebuild watchlist grid
+    } else { // n === 'settings'
       layout.classList.add('single');
       layout.classList.remove('full');
       logPanel.classList.add('hidden');
-      loadConfig();
-      updateSimklButtonState();
-      loadScheduling();
-      updateTmdbHint();
+
+      // Open sections so inputs are visible
+      document.getElementById('sec-auth')?.classList.add('open');
+      document.getElementById('sec-plex')?.classList.add('close');
+      document.getElementById('sec-simkl')?.classList.add('close');
+      document.getElementById('sec-tmdb')?.classList.add('close');
+
+      // Load config first so fields are populated, then compute UI state
+      await loadConfig();
+      updateTmdbHint?.();
+      updateSimklHint?.();
+      updateSimklButtonState?.();
+      loadScheduling?.();
     }
   }
-
+  
   function toggleSection(id) { 
     document.getElementById(id).classList.toggle('open'); 
   }
@@ -729,7 +906,40 @@ function logHTML(t){ const el=document.getElementById('log'); el.innerHTML += t 
 
   function setPlexSuccess(show){ document.getElementById('plex_msg').classList.toggle('hidden', !show); }
   function setSimklSuccess(show){ document.getElementById('simkl_msg').classList.toggle('hidden', !show); }
-  async function copyField(id){ try{ await navigator.clipboard.writeText(document.getElementById(id).value||''); }catch(_){} }
+
+  async function copyField(id, btn){
+    const el = document.getElementById(id);
+    const text = el ? (('value' in el) ? el.value : (el.textContent || '')) : '';
+    if (!text) { flashCopy(btn, false, 'Empty'); return; }
+
+    let ok = false;
+    try {                       // modern API
+      await navigator.clipboard.writeText(text);
+      ok = true;
+    } catch {
+      try {                     // fallback for non-HTTPS
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.setAttribute('readonly','');
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.focus(); ta.select();
+        ok = document.execCommand('copy');
+        document.body.removeChild(ta);
+      } catch { ok = false; }
+    }
+    flashCopy(btn, ok);
+  }
+
+  function flashCopy(btn, ok, msg){
+    if (!btn) { if(!ok) alert(msg || 'Copy failed'); return; }
+    const old = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = ok ? 'Copied ✓' : (msg || 'Copy failed');
+    setTimeout(()=>{ btn.textContent = old; btn.disabled = false; }, 1000);
+  }
+
   function computeRedirectURI(){ return window.location.origin + '/callback'; }
   async function copyRedirect(){ try{ await navigator.clipboard.writeText(computeRedirectURI()); }catch(_){} }
   function isPlaceholder(v, ph){ return (v||'').trim().toUpperCase() === ph.toUpperCase(); }
@@ -803,21 +1013,88 @@ function logHTML(t){ const el=document.getElementById('log'); el.innerHTML += t 
     fetch('/api/run/summary').then(r=>r.json()).then(renderSummary).catch(()=>{});
   }
 
-  function toggleDetails(){ document.getElementById('details').classList.toggle('hidden'); }
+  let esDet = null;
 
-  async function copySummary(){
-    if(!currentSummary) return;
-    const s = currentSummary; const lines = [];
-    lines.push(`Plex ⇄ SIMKL Watchlist Sync ${s.version || ''}`.trim());
-    if(s.started_at) lines.push(`Start:   ${s.started_at}`);
-    if(s.finished_at) lines.push(`Finish:  ${s.finished_at}`);
-    if(s.cmd) lines.push(`Cmd:     ${s.cmd}`);
-    if(s.plex_pre != null && s.simkl_pre != null) lines.push(`Pre:     Plex=${s.plex_pre} vs SIMKL=${s.simkl_pre}`);
-    if(s.plex_post != null && s.simkl_post != null) lines.push(`Post:    Plex=${s.plex_post} vs SIMKL=${s.simkl_post} -> ${s.result || 'UNKNOWN'}`);
-    if(s.duration_sec != null) lines.push(`Duration: ${s.duration_sec}s`);
-    if(s.exit_code != null) lines.push(`Exit:     ${s.exit_code}`);
-    try{ await navigator.clipboard.writeText(lines.join('\n')); }catch(_){}
+  function openDetailsLog(){
+    const el = document.getElementById('det-log');
+    if (!el) return;
+    el.innerHTML = '';                 // start fresh
+    if (esDet) { esDet.close(); esDet = null; }
+    esDet = new EventSource('/api/logs/stream?tag=SYNC');  // <- backend route below
+
+    esDet.onmessage = (ev) => {
+      if (!ev?.data) return;
+      el.insertAdjacentHTML('beforeend', ev.data + '<br>');  // lines are HTML-escaped
+      el.scrollTop = el.scrollHeight;
+    };
+    esDet.onerror = () => { try { esDet?.close(); } catch(_){} esDet = null; };
   }
+
+  function closeDetailsLog(){
+    try { esDet?.close(); } catch(_){}
+    esDet = null;
+  }
+
+  function toggleDetails(){
+    const d = document.getElementById('details');
+    d.classList.toggle('hidden');
+    if (!d.classList.contains('hidden')) openDetailsLog(); else closeDetailsLog();
+  }
+
+  window.addEventListener('beforeunload', closeDetailsLog);
+
+  async function copySummary(btn){
+    // Ensure we have a summary
+    if (!window.currentSummary) {
+      try { window.currentSummary = await fetch('/api/run/summary').then(r=>r.json()); }
+      catch { flashCopy(btn, false, 'No summary'); return; }
+    }
+    const s = window.currentSummary;
+    if (!s) { flashCopy(btn, false, 'No summary'); return; }
+
+    // Build text
+    const lines = [];
+    lines.push(`Plex ⇄ SIMKL Watchlist Sync ${s.version || ''}`.trim());
+    if (s.started_at)   lines.push(`Start:   ${s.started_at}`);
+    if (s.finished_at)  lines.push(`Finish:  ${s.finished_at}`);
+    if (s.cmd)          lines.push(`Cmd:     ${s.cmd}`);
+    if (s.plex_pre != null && s.simkl_pre != null)   lines.push(`Pre:     Plex=${s.plex_pre} vs SIMKL=${s.simkl_pre}`);
+    if (s.plex_post != null && s.simkl_post != null) lines.push(`Post:    Plex=${s.plex_post} vs SIMKL=${s.simkl_post} -> ${s.result || 'UNKNOWN'}`);
+    if (s.duration_sec != null) lines.push(`Duration: ${s.duration_sec}s`);
+    if (s.exit_code != null)    lines.push(`Exit:     ${s.exit_code}`);
+    const text = lines.join('\n');
+
+    // Try modern clipboard, then fallback
+    let ok = false;
+    try {
+      await navigator.clipboard.writeText(text);
+      ok = true;
+    } catch {
+      try {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.setAttribute('readonly','');
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.focus(); ta.select();
+        ok = document.execCommand('copy');
+        document.body.removeChild(ta);
+      } catch { ok = false; }
+    }
+
+    flashCopy(btn, ok);
+  }
+
+  function flashCopy(btn, ok, msg){
+    if (!btn) { if(!ok) alert(msg || 'Copy failed'); return; }
+    const old = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = ok ? 'Copied ✓' : (msg || 'Copy failed');
+    setTimeout(()=>{ btn.textContent = old; btn.disabled = false; }, 1200);
+  }
+
+  
   function downloadSummary(){ window.open('/api/run/summary/file', '_blank'); }
 
   async function refreshStatus(){
@@ -839,84 +1116,112 @@ function logHTML(t){ const el=document.getElementById('log'); el.innerHTML += t 
 
   async function loadConfig(){
     const cfg = await fetch('/api/config').then(r=>r.json());
-    document.getElementById('mode').value = cfg.sync?.bidirectional?.mode || 'two-way';
+
+    // --- SYNC / runtime ---
+    document.getElementById('mode').value   = cfg.sync?.bidirectional?.mode || 'two-way';
     document.getElementById('source').value = cfg.sync?.bidirectional?.source_of_truth || 'plex';
-    document.getElementById('debug').value = String(cfg.runtime?.debug || false);
+    document.getElementById('debug').value  = String(cfg.runtime?.debug || false);
+
+    // --- PLEX ---
     document.getElementById('plex_token').value = cfg.plex?.account_token || '';
-    document.getElementById('simkl_client_id').value = cfg.simkl?.client_id || '';
+
+    // --- SIMKL (the missing bit) ---
+    document.getElementById('simkl_client_id').value     = cfg.simkl?.client_id || '';
     document.getElementById('simkl_client_secret').value = cfg.simkl?.client_secret || '';
-    document.getElementById('simkl_access_token').value = cfg.simkl?.access_token || '';
+    document.getElementById('simkl_access_token').value  = cfg.simkl?.access_token || '';
+
+    // --- TMDb ---
     document.getElementById('tmdb_api_key').value = cfg.tmdb?.api_key || '';
+
+    // refresh UI state after fields are filled
+    updateSimklButtonState?.();
+    updateSimklHint?.();
+    updateTmdbHint?.();
   }
 
+  // SAVE SETTINGS
   async function saveSettings(){
-  // 1) Serverconfig ophalen + deep clone
-  const serverCfg = await fetch('/api/config').then(r=>r.json()).catch(()=>({}));
-  const cfg = (typeof structuredClone === 'function')
-    ? structuredClone(serverCfg)
-    : JSON.parse(JSON.stringify(serverCfg || {}));
+    // 1) Read server config + deep clone
+    const serverCfg = await fetch('/api/config').then(r=>r.json()).catch(()=>({}));
+    const cfg = (typeof structuredClone === 'function')
+      ? structuredClone(serverCfg)
+      : JSON.parse(JSON.stringify(serverCfg || {}));
 
-  // --- SYNC ---
-  cfg.sync = cfg.sync || {};
-  cfg.sync.bidirectional = cfg.sync.bidirectional || {};
+    // --- SYNC ---
+    cfg.sync = cfg.sync || {};
+    cfg.sync.bidirectional = cfg.sync.bidirectional || {};
+    const uiMode   = document.getElementById('mode').value;
+    const uiSource = document.getElementById('source').value;
+    cfg.sync.bidirectional.mode = uiMode;
+    cfg.sync.bidirectional.source_of_truth = uiSource;
 
-  // Alleen UI-velden zetten
-  const uiMode   = document.getElementById('mode').value;
-  const uiSource = document.getElementById('source').value;
-  cfg.sync.bidirectional.mode = uiMode;
-  cfg.sync.bidirectional.source_of_truth = uiSource;
-  // Laat overige flags ongemoeid (enable_add/remove/verify_after_write/bidirectional.enabled)
+    // --- RUNTIME ---
+    cfg.runtime = cfg.runtime || {};
+    cfg.runtime.debug = (document.getElementById('debug').value === 'true');
 
-  // --- RUNTIME ---
-  cfg.runtime = cfg.runtime || {};
-  cfg.runtime.debug = (document.getElementById('debug').value === 'true');
+    // --- PLEX ---
+    cfg.plex = cfg.plex || {};
+    const uiPlexToken = (document.getElementById('plex_token').value || '').trim();
+    if (uiPlexToken) cfg.plex.account_token = uiPlexToken;
 
-  // --- PLEX ---
-  cfg.plex = cfg.plex || {};
-  const uiPlexToken = (document.getElementById('plex_token').value || '').trim();
-  if (uiPlexToken) cfg.plex.account_token = uiPlexToken;  // alleen overschrijven als niet leeg
+    // --- SIMKL ---
+    cfg.simkl = cfg.simkl || {};
+    const uiCid = (document.getElementById('simkl_client_id').value || '').trim();
+    const uiSec = (document.getElementById('simkl_client_secret').value || '').trim();
+    if (uiCid) cfg.simkl.client_id = uiCid;
+    if (uiSec) cfg.simkl.client_secret = uiSec;
+    // (access_token not modified here)
 
-  // --- SIMKL ---
-  cfg.simkl = cfg.simkl || {};
-  const uiCid = (document.getElementById('simkl_client_id').value || '').trim();
-  const uiSec = (document.getElementById('simkl_client_secret').value || '').trim();
-  if (uiCid) cfg.simkl.client_id = uiCid;
-  if (uiSec) cfg.simkl.client_secret = uiSec;
-  // Access token niet hier aanpassen
+    // --- TMDb ---
+    cfg.tmdb = cfg.tmdb || {};
+    const uiTmdb = (document.getElementById('tmdb_api_key').value || '').trim();
+    if (uiTmdb) cfg.tmdb.api_key = uiTmdb;
 
-  // --- TMDb ---
-  cfg.tmdb = cfg.tmdb || {};
-  const uiTmdb = (document.getElementById('tmdb_api_key').value || '').trim();
-  if (uiTmdb) cfg.tmdb.api_key = uiTmdb;   // alleen als ingevuld (leeg = niet wissen)
+    // 2) Save general config
+    await fetch('/api/config', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(cfg)
+    });
 
-  // 2) Wegschrijven
-  await fetch('/api/config', {
-    method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body: JSON.stringify(cfg)
-  });
+    // 2b) Save Scheduling with the same Save button
+    try {
+      const schPayload = {
+        enabled: document.getElementById('schEnabled').value === 'true',
+        mode: document.getElementById('schMode').value,
+        every_n_hours: parseInt(document.getElementById('schN').value || '2', 10),
+        daily_time: document.getElementById('schTime').value || '03:30'
+      };
+      await fetch('/api/scheduling', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify(schPayload)
+      });
+    } catch (e) {
+      console.warn('Failed to save scheduling', e);
+    }
 
-  // 3) UI refreshes
-  updateSimklButtonState();
-  updateTmdbHint();
-  await refreshStatus();
-  await updateWatchlistTabVisibility?.();  // tab tonen/verbergen o.b.v. TMDb key
+    // 3) UI refreshes
+    updateSimklButtonState?.();
+    updateTmdbHint?.();
+    await refreshStatus();
+    refreshSchedulingBanner?.();
+    await updateWatchlistTabVisibility?.();
 
-  // 4) Alleen op Main de preview beheren/laden
-  const onMain = !document.getElementById('ops-card').classList.contains('hidden');
-  if (onMain) {
-    await updatePreviewVisibility();       // laat deze zelf beslissen of 'ie moet laden
-  } else {
-    // Zit je op Settings? Zorg dat de preview verborgen blijft.
-    document.getElementById('placeholder-card')?.classList.add('hidden');
-    // (en laat wallLoaded zoals 'ie staat; updatePreviewVisibility() doet de juiste reset)
+    // 4) Only manage the preview on Main
+    const onMain = !document.getElementById('ops-card').classList.contains('hidden');
+    if (onMain) {
+      await updatePreviewVisibility();
+    } else {
+      document.getElementById('placeholder-card')?.classList.add('hidden');
+    }
+
+    // 5) Save toast
+    const m = document.getElementById('save_msg');
+    m.classList.remove('hidden');
+    setTimeout(()=>m.classList.add('hidden'), 1600);
   }
 
-  // 5) Save-melding
-  const m = document.getElementById('save_msg');
-  m.classList.remove('hidden');
-  setTimeout(()=>m.classList.add('hidden'), 1600);
-}
 
   // ---- Scheduling UI ----
   async function loadScheduling(){
@@ -990,10 +1295,27 @@ function logHTML(t){ const el=document.getElementById('log'); el.innerHTML += t 
 
   // ---- Hints / Validation ----
   async function updateTmdbHint(){
-    const v = (document.getElementById('tmdb_api_key').value || '').trim();
-    const hint = document.getElementById('tmdb_hint');
-    hint.classList.toggle('hidden', !!v);
+    const hint  = document.getElementById('tmdb_hint');
+    const input = document.getElementById('tmdb_api_key');
+    if (!hint || !input) return;
+
+    const v = (input.value || '').trim();
+    if (v){                         // user already typed / field filled
+      hint.classList.add('hidden');
+      return;
+    }
+
+    // Field is empty — double-check saved config on the server
+    try {
+      const cfg = await fetch('/api/config', { cache: 'no-store' }).then(r => r.json());
+      const has = !!((cfg.tmdb?.api_key || '').trim());
+      hint.classList.toggle('hidden', has);
+    } catch {
+      // If we can’t reach the server, err on the side of showing the hint
+      hint.classList.remove('hidden');
+    }
   }
+
 
   // PLEX
   async function requestPlexPin(){

@@ -3,7 +3,7 @@
 """
 Web UI backend (FastAPI) for Plex ⇄ SIMKL Watchlist Sync
 """
-
+import requests
 import json
 import re
 import secrets
@@ -17,9 +17,14 @@ import shutil
 import urllib.request
 import urllib.error
 import urllib.parse
+from fastapi import Query
+from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse
 from _watchlist import build_watchlist, delete_watchlist_item
 from _FastAPI import get_index_html
-
+from functools import lru_cache
+from packaging.version import Version, InvalidVersion
+from fastapi import APIRouter, HTTPException
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -45,8 +50,109 @@ from _auth_helper import (
 from _TMDB import get_poster_file, get_meta
 from _scheduling import SyncScheduler
 
+
 ROOT = Path(__file__).resolve().parent
 
+# --- App (create FIRST, then decorate handlers below) ---
+app = FastAPI()
+
+# --- Versioning ---
+CURRENT_VERSION = os.getenv("APP_VERSION", "v0.4.3")  # keep in sync with release tag
+REPO = os.getenv("GITHUB_REPO", "cenodude/plex-simkl-watchlist-sync")
+GITHUB_API = f"https://api.github.com/repos/{REPO}/releases/latest"
+
+router = APIRouter()
+
+@app.get("/api/update")
+def api_update():
+    cache = _cached_latest_release(_ttl_marker(300))
+    cur = _norm(CURRENT_VERSION)
+    lat = cache.get("latest") or cur
+    update = _is_update_available(cur, lat)
+    html_url = cache.get("html_url")
+    return {
+        "current_version": cur,
+        "latest_version": lat,
+        "update_available": bool(update),
+        "html_url": html_url,  # <-- add this
+        "url": html_url,       # <-- keep alias just in case UI expects `url`
+        "body": cache.get("body", ""),
+        "published_at": cache.get("published_at"),
+    }
+
+def _norm(v: str) -> str:
+    # strip leading 'v' and spaces
+    return re.sub(r"^\s*v", "", v.strip(), flags=re.IGNORECASE)
+
+@lru_cache(maxsize=1)
+def _cached_latest_release(_marker: int) -> dict:
+    """
+    Cached lookup. _marker allows us to control TTL via a changing integer.
+    """
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "User-Agent": "Plex-SIMKL-Watchlist-Sync"
+    }
+    try:
+        r = requests.get(GITHUB_API, headers=headers, timeout=8)
+        r.raise_for_status()
+        data = r.json()
+        tag = data.get("tag_name") or ""
+        latest = _norm(tag)
+        html_url = data.get("html_url") or f"https://github.com/{REPO}/releases"
+        notes = data.get("body") or ""
+        published_at = data.get("published_at")
+        return {"latest": latest, "html_url": html_url, "body": notes, "published_at": published_at}
+    except Exception as e:
+        # Fallback: no crash; just say "unknown"
+        return {"latest": None, "html_url": f"https://github.com/{REPO}/releases", "body": "", "published_at": None}
+
+def _ttl_marker(seconds=300) -> int:
+    # changes every <seconds> to invalidate lru_cache
+    return int(time.time() // seconds)
+
+def _is_update_available(current: str, latest: str) -> bool:
+    if not latest:
+        return False
+    try:
+        return Version(_norm(latest)) > Version(_norm(current))
+    except InvalidVersion:
+        return latest != current
+
+@router.get("/api/version")
+def get_version():
+    cur = _norm(CURRENT_VERSION)
+    cache = _cached_latest_release(_ttl_marker(300))
+    latest = cache["latest"]
+    html_url = cache["html_url"]
+    return {
+        "current": cur,
+        "latest": latest,
+        "update_available": _is_update_available(cur, latest),
+        "html_url": html_url,
+    }
+
+def _ver_tuple(s: str):
+    try:
+        return tuple(int(p) for p in re.split(r"[^\d]+", s.strip()) if p != "")
+    except Exception:
+        return (0,)
+
+@app.get("/api/version/check")
+def api_version_check():
+    cache = _cached_latest_release(_ttl_marker(300))
+    cur = CURRENT_VERSION
+    lat = cache.get("latest") or cur
+    update = _ver_tuple(lat) > _ver_tuple(cur)
+    return {
+        "current": cur,
+        "latest": lat,
+        "update_available": bool(update),
+        "name": None,
+        "url": cache.get("html_url"),
+        "notes": "",
+        "published_at": None,
+    }
 
 # --- Favicon (SVG) ---
 FAVICON_SVG = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
@@ -535,10 +641,8 @@ def connected_status(cfg: Dict[str, Any]) -> Tuple[bool, bool, bool]:
     return plex_ok, simkl_ok, debug
 
 # ---------- FastAPI ----------
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    # Startup
+@app.on_event("startup")
+async def _on_startup():
     try:
         scheduler.ensure_defaults()
         sch = (load_config().get("scheduling") or {})
@@ -546,15 +650,13 @@ async def lifespan(app: FastAPI):
             scheduler.start()
     except Exception:
         pass
-    try:
-        yield
-    finally:
-        try:
-            scheduler.stop()
-        except Exception:
-            pass
 
-app = FastAPI(lifespan=lifespan)
+@app.on_event("shutdown")
+async def _on_shutdown():
+    try:
+        scheduler.stop()
+    except Exception:
+        pass
 
 @app.middleware("http")
 async def cache_headers_for_api(request: Request, call_next):
@@ -566,9 +668,6 @@ async def cache_headers_for_api(request: Request, call_next):
         resp.headers["Pragma"] = "no-cache"
         resp.headers["Expires"] = "0"
     return resp
-
-from fastapi import Query
-from fastapi.responses import StreamingResponse
 
 @app.get("/api/logs/stream")
 def api_logs_stream_initial(tag: str = Query("SYNC")):
@@ -684,10 +783,6 @@ INDEX_HTML = get_index_html()
 @app.get("/", response_class=HTMLResponse)
 def index() -> HTMLResponse:
     return HTMLResponse(INDEX_HTML)
-
-import time
-from fastapi import Query
-from fastapi.responses import JSONResponse
 
 @app.get("/api/status")
 def api_status(fresh: int = Query(0)):
@@ -843,25 +938,7 @@ def api_run_summary_stream() -> StreamingResponse:
                 yield f"data: {json.dumps(snap, separators=(',',':'))}\n\n"
     return StreamingResponse(gen(), media_type="text/event-stream")
 
-# ---- Logs SSE ----
-@app.get("/api/logs/stream")
-def api_logs_stream(tag: str) -> StreamingResponse:
-    tag = (tag or "").upper()
-    if tag not in LOG_BUFFERS:
-        def empty():
-            while True:
-                time.sleep(1); yield "data: \n\n"
-        return StreamingResponse(empty(), media_type="text/event-stream")
-    def event_gen():
-        for line in LOG_BUFFERS.get(tag, []): yield f"data: {line}\n\n"
-        last_len = len(LOG_BUFFERS.get(tag, []))
-        while True:
-            time.sleep(0.25)
-            buf = LOG_BUFFERS.get(tag, [])
-            if len(buf) > last_len:
-                for line in buf[last_len:]: yield f"data: {line}\n\n"
-                last_len = len(buf)
-    return StreamingResponse(event_gen(), media_type="text/event-stream")
+
 
 # ---- TMDb & wall ----
 @app.get("/api/state/wall")

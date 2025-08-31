@@ -25,7 +25,6 @@ SIMKL OAuth setup
 Requirements
 ------------
 - Python 3.10+
-- Packages: requests, plexapi (4.17.1+)
 - config.json and state.json stored next to the script (or in /config when containerized).
 
 Disclaimer
@@ -50,7 +49,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from typing import Any, Sequence, Tuple, List, Dict, Set, Optional, NoReturn, cast
 
-__VERSION__ = "0.4.2"
+__VERSION__ = "v0.4.3"
 
 # --- timestamped & colored print ---
 ANSI_DIM    = "\033[90m"  # grey

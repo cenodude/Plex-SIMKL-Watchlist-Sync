@@ -1,5 +1,5 @@
 # _FastAPI.py
-# Exports the full HTML for the FastAPI index page.
+# Renders the full HTML for the web UI. Keep this file self‑contained 
 
 def get_index_html() -> str:
     return r"""<!doctype html><html><head>
@@ -8,6 +8,7 @@ def get_index_html() -> str:
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="alternate icon" href="/favicon.ico">
 <style>
+
   :root{
     --bg:#000; --panel:#0b0b0f; --panel2:#0e0e15; --muted:#9aa4b2; --fg:#f2f4f8;
     --accent:#7c5cff; --accent2:#19c37d; --danger:#ff4d4f; --border:#1a1a24; --glow:#7c5cff66; --glow2:#19c37d66;
@@ -24,15 +25,40 @@ def get_index_html() -> str:
     font:14px/1.5 ui-sans-serif,system-ui,Segoe UI,Roboto;
   }
 
-  #ops-card.card{
-    /* option A: more breathing room via padding */
-    padding-block: 20px 38px;   /* top / bottom */
+  /* Ops card layout */
+  #ops-card.card{ padding-block: 20px 38px; }
 
-    /* option B (fixed floor): uncomment to enforce a minimum height */
-    /* min-height: 260px; */
+  /* Icon button + spinner animation */
+  .iconbtn{
+    display:inline-flex; align-items:center; justify-content:center;
+    width:32px; height:32px; border-radius:10px;
+    border:1px solid var(--border);
+    background:linear-gradient(180deg,rgba(255,255,255,.02),transparent), #0b0b16;
+    color:#dfe6ff; cursor:pointer;
+    box-shadow:0 0 0 transparent;
+    transition: box-shadow .25s ease, filter .2s ease, transform .05s ease, opacity .2s;
+  }
+  .iconbtn:hover{ box-shadow:0 0 14px #7c5cff66; filter: brightness(1.06); }
+  .iconbtn:active{ transform: translateY(1px); }
+  .iconbtn:disabled{ opacity:.55; cursor:not-allowed; box-shadow:none; }
+
+  .iconbtn.loading svg{ animation: spin .8s linear infinite; }
+  .iconbtn svg { transition: transform .3s ease; }
+  .iconbtn.spin svg{ animation: pulseSpin 2s linear; }
+
+  /* Shared rotation keyframe */
+  @keyframes spin { to { transform: rotate(360deg); } }
+  /* 2s "spin + slight scale" burst used on manual refresh */
+  @keyframes pulseSpin {
+    0%   { transform: rotate(0deg) scale(1); }
+    50%  { transform: rotate(180deg) scale(1.2); }
+    100% { transform: rotate(360deg) scale(1); }
   }
 
-  /* Right meta card */
+  /* Versioning pill */
+  .hidden{ display:none }
+
+  /* Sticky right meta card */
   .det-right{ position: sticky; top: 8px; align-self: start; }
 
   .meta-card{
@@ -60,7 +86,7 @@ def get_index_html() -> str:
     user-select: none;
   }
 
-  .meta-value{ min-width: 0; }               /* allow truncation */
+  .meta-value{ min-width: 0; }
   .pillvalue{
     display: inline-flex;
     align-items: center;
@@ -73,44 +99,23 @@ def get_index_html() -> str:
     line-height: 1.2;
   }
 
-  .truncate{
-    max-width: 100%;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
+  .truncate{ max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .mono{ font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; font-variant-numeric: tabular-nums; }
 
-  .mono{
-    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
-    font-variant-numeric: tabular-nums;
-  }
+  .meta-actions{ display:flex; gap:8px; justify-content:flex-end; margin-top:12px; }
 
-  .meta-actions{
-    display: flex;
-    gap: 8px;
-    justify-content: flex-end;
-    margin-top: 12px;
-  }
-
-  /* keep two-column details layout */
+  /* Two-column details layout */
   .details-grid{
     display: grid;
-    grid-template-columns: minmax(0,1fr) 320px;  /* left grows, right fixed */
+    grid-template-columns: minmax(0,1fr) 320px;
     gap: 16px;
-    align-items: stretch;                        /* <-- equal heights */
+    align-items: stretch;
   }
   @media (max-width: 900px){
     .details-grid{ grid-template-columns: 1fr; }
     .det-right{ position: static; }
   }
-
-  /* Columns as vertical flex stacks */
-  .det-left,
-  .det-right{
-    display: flex;
-    flex-direction: column;
-    min-height: 0;                               /* avoid overflow in flex */
-  }
+  .det-left, .det-right{ display:flex; flex-direction:column; min-height:0; }
 
   /* Header */
   header{
@@ -127,6 +132,7 @@ def get_index_html() -> str:
     color:var(--muted);transition:.2s; background:#0b0b16;
     box-shadow:0 0 0px transparent;
     overflow:hidden;
+    animation: neonPulse 3.2s ease-in-out infinite;
   }
   .tab.active{color:var(--fg);border-color:#3d38ff;box-shadow:0 0 18px #3d38ff33}
   @keyframes neonPulse {
@@ -134,7 +140,6 @@ def get_index_html() -> str:
     50%  { box-shadow:0 0 18px #7c5cff66, inset 0 0 12px #7c5cff22 }
     100% { box-shadow:0 0 10px #7c5cff33, inset 0 0 0 #0000 }
   }
-  .tab{ animation: neonPulse 3.2s ease-in-out infinite; }
   .tab:hover{ box-shadow:0 0 22px #7c5cff88 }
   .tab.active:hover{ box-shadow:0 0 28px #7c5cffaa }
 
@@ -149,7 +154,7 @@ def get_index_html() -> str:
     user-select:none
   }
 
-  /* Layout */
+  /* Page layout */
   main{
     display:grid;
     grid-template-columns:1fr 440px;
@@ -162,22 +167,10 @@ def get_index_html() -> str:
   main.full{grid-template-columns:1fr}
   main.single{grid-template-columns:1fr}
   #ops-card{grid-column:1} #placeholder-card{grid-column:1} #log-panel{grid-column:2; align-self:start}
-  #ops-card .chiprow{ margin-bottom: 20px; }     /* was ~8px */
-  #ops-card .sep{ margin: 6px 0 16px; }          /* pushes the buttons down a bit */
-  #ops-card .action-row{ margin-top: 0; }        /* ensure no extra collapse */
+  #ops-card .chiprow{ margin-bottom: 20px; }
+  #ops-card .sep{ margin: 6px 0 16px; }
+  #ops-card .action-row{ margin-top: 0; }
 
-  /* Hide the title captions under posters */
-  .cap, .wl-cap { display: none !important; }
-
-  /* Reuse carousel visuals on the Watchlist grid items */
-  .wl-poster.poster { /* combineert grid en poster styles */ }
-  .wl-poster .wl-ovr.ovr { /* alias: zelfde pill-styling als carrousel */ }
-  .wl-poster .wl-cap.cap { /* alias: zelfde caption styling */ }
-  .wl-poster .wl-hover.hover { /* alias: zelfde hover-overlay styling */ }
-
-  /* Zorg dat Delete altijd klikbaar blijft */
-  .wl-del { z-index: 5; position: absolute; }
-   
   /* Cards */
   .card{
     background:linear-gradient(180deg,rgba(255,255,255,.02),transparent),var(--panel);
@@ -221,40 +214,11 @@ def get_index_html() -> str:
   .ops-header .badges{margin-left:auto}
   .sync-status{display:flex;align-items:center;gap:10px;margin:8px 0 4px}
 
-  .sync-icon{
-    width:15px;
-    height:15px;
-    border-radius:50%;
-    flex-shrink:0;
-    position: relative;
-    top: -5px;
-  }
-
-  .sync-status{
-  display:flex;
-  align-items:center;
-  gap:8px;
-}
-
-  .sync-icon.sync-warn{
-    background:#ffc400;
-    box-shadow:0 0 12px #ffc40088, 0 0 24px #ffc40044;
-    animation: pulseWarn 1.6s infinite ease-in-out;
-  }
-  @keyframes pulseWarn {
-    0%,100% { transform:scale(1); opacity:1; }
-    50% { transform:scale(1.15); opacity:0.8; }
-  }
-
-  .sync-icon.sync-bad{
-    background:#ff4d4f;
-    box-shadow:0 0 12px #ff4d4f88, 0 0 24px #ff4d4f44;
-    animation: pulseBad 1.2s infinite ease-in-out;
-  }
-  @keyframes pulseBad {
-    0%,100% { transform:scale(1); }
-    50% { transform:scale(1.2); }
-  }
+  .sync-icon{ width:15px; height:15px; border-radius:50%; flex-shrink:0; position: relative; top: -5px; }
+  .sync-icon.sync-warn{ background:#ffc400; box-shadow:0 0 12px #ffc40088, 0 0 24px #ffc40044; animation: pulseWarn 1.6s infinite ease-in-out; }
+  @keyframes pulseWarn { 0%,100% { transform:scale(1); opacity:1; } 50% { transform:scale(1.15); opacity:0.8; } }
+  .sync-icon.sync-bad{ background:#ff4d4f; box-shadow:0 0 12px #ff4d4f88, 0 0 24px #ff4d4f44; animation: pulseBad 1.2s infinite ease-in-out; }
+  @keyframes pulseBad { 0%,100% { transform:scale(1); } 50% { transform:scale(1.2); } }
 
   .sync-ok{background:var(--accent2)} .sync-warn{background:#ffc400} .sync-bad{background:#ff4d4f}
   .chiprow{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0}
@@ -273,43 +237,16 @@ def get_index_html() -> str:
   .msg.warn{background:rgba(255,196,0,.10);border-color:rgba(255,196,0,.35);color:#ffe28a}
   .muted{color:var(--muted)} code{padding:2px 6px;border:1px solid var(--border);border-radius:8px;background:#0a0a17}
 
-  .details-grid{
-    display:grid;
-    grid-template-columns:minmax(0,1fr) 300px;
-    gap:14px;
-  }
-  #det-log{
-    min-height:220px;
-    max-height:55vh;
-  }
-  @media (max-width: 900px){
-    .details-grid{ grid-template-columns: 1fr; }
-  }
-
   /* Footer buttons – consistent neon style */
   .footer{display:flex;gap:10px;align-items:center;margin-top:8px}
-  .footer .btn{
-    padding:12px 16px;
-    border-radius:14px;
-    border:1px solid var(--border);
-    background:#121224;
-    color:#fff;
-    font-weight:650;
-  }
-  .footer .btn:first-child{
-    background:linear-gradient(180deg,rgba(255,255,255,.02),transparent), var(--grad2);
-    box-shadow:0 0 14px var(--glow2);
-  }
-  .footer .btn:nth-child(2){
-    background:linear-gradient(180deg,rgba(255,255,255,.02),transparent), var(--grad3);
-    box-shadow:0 0 14px #ff7ae044;
-  }
+  .footer .btn{ padding:12px 16px; border-radius:14px; border:1px solid var(--border); background:#121224; color:#fff; font-weight:650; }
+  .footer .btn:first-child{ background:linear-gradient(180deg,rgba(255,255,255,.02),transparent), var(--grad2); box-shadow:0 0 14px var(--glow2); }
+  .footer .btn:nth-child(2){ background:linear-gradient(180deg,rgba(255,255,255,.02),transparent), var(--grad3); box-shadow:0 0 14px #ff7ae044; }
   .footer .btn:hover{filter:brightness(1.07);box-shadow:0 0 22px #7c5cff66}
   .footer .btn:active{transform:translateY(1px)}
   #save_msg{margin-left:8px}
 
-  
-  /* ---- Watchlist grid (not a carousel) ---- */
+  /* Watchlist grid */
   .wl-grid{
     --gap: 12px;
     display:grid;
@@ -326,23 +263,17 @@ def get_index_html() -> str:
   .wl-poster:hover{ transform: translateY(-2px) scale(1.01); box-shadow:0 0 24px #7c5cff44; }
   .wl-poster img{ width:100%; height:100%; object-fit:cover; display:block }
   .wl-ovr{ position:absolute; top:8px; right:8px; display:flex; gap:6px }
-  .wl-del{
-    position:absolute; top:8px; left:8px;
-    padding:4px 8px; border-radius:999px; font-size:11px; font-weight:800;
-    background:rgba(0,0,0,.5); border:1px solid rgba(255,255,255,.12); backdrop-filter: blur(4px);
-    cursor:pointer;
-  }
+  .wl-del{ position:absolute; top:8px; left:8px; padding:4px 8px; border-radius:999px; font-size:11px; font-weight:800;
+           background:rgba(0,0,0,.5); border:1px solid rgba(255,255,255,.12); backdrop-filter: blur(4px); cursor:pointer; }
   .wl-cap{ position:absolute; left:8px; right:8px; bottom:6px; font-size:12px; color:#dfe3ea; text-shadow:0 1px 2px #000 }
-  .wl-hover{
-    position:absolute; inset:auto 0 0 0; height:62%;
-    background: linear-gradient(180deg,rgba(0,0,0,.1),rgba(0,0,0,.60) 20%, rgba(0,0,0,.85));
-    color:#eaf0ff; padding:10px; transform: translateY(100%); opacity:0; transition:.25s ease;
-    border-top:1px solid #ffffff22; backdrop-filter: blur(8px);
-  }
+  .wl-hover{ position:absolute; inset:auto 0 0 0; height:62%;
+             background: linear-gradient(180deg,rgba(0,0,0,.1),rgba(0,0,0,.60) 20%, rgba(0,0,0,.85));
+             color:#eaf0ff; padding:10px; transform: translateY(100%); opacity:0; transition:.25s ease;
+             border-top:1px solid #ffffff22; backdrop-filter: blur(8px); }
   .wl-poster:hover .wl-hover{ transform: translateY(0); opacity:1; }
   .wl-removing{ opacity:0; transform: scale(.98); filter: blur(1px); }
 
-  /* ---------- Poster carousel ---------- */
+  /* Poster carousel */
   .wall-msg{color:var(--muted);margin-bottom:10px}
   .wall-wrap{position:relative; overflow:hidden;}
   .row-scroll{
@@ -412,7 +343,7 @@ def get_index_html() -> str:
   .edge.left{left:0; background:linear-gradient(90deg,var(--panel) 0%, transparent 100%)}
   .edge.right{right:0; background:linear-gradient(270deg,var(--panel) 0%, transparent 100%)}
   .edge.hide{opacity:0}
-  
+
   #ops-card { position: relative; }
   #conn-badges {
     position: absolute;
@@ -424,117 +355,56 @@ def get_index_html() -> str:
     flex-wrap: wrap;
   }
 
-  /* --- subtle glass shimmer on the main Sync button --- */
-/* base: container for effects */
-#run.btn.acc { position: relative; overflow: hidden; }
+  /* Run button visual feedback */
+  #run.btn.acc { position: relative; overflow: hidden; }
+  #run.btn.acc::after{
+    content:"";
+    position:absolute; top:-120%; left:-30%;
+    width:60%; height:300%;
+    transform: rotate(25deg);
+    opacity:0;
+    background: linear-gradient(to right, rgba(255,255,255,0) 0%, rgba(255,255,255,0.18) 50%, rgba(255,255,255,0) 100%);
+  }
+  #run.btn.acc.loading::after{ opacity:1; animation: shimmer 1.2s linear infinite; }
+  @keyframes shimmer { 0%{ transform: translateX(-120%) rotate(25deg); } 100%{ transform: translateX(220%) rotate(25deg); } }
 
-/* shimmer layer (idle = hidden) */
-#run.btn.acc::after{
-  content:"";
-  position:absolute;
-  top:-120%; left:-30%;
-  width:60%; height:300%;
-  transform: rotate(25deg);
-  opacity:0;                       /* hidden when not loading */
-  background: linear-gradient(
-    to right,
-    rgba(255,255,255,0) 0%,
-    rgba(255,255,255,0.18) 50%,
-    rgba(255,255,255,0) 100%
-  );
-}
+  #run{ --prog: 0; position: relative; overflow: hidden; }
+  #run::before{
+    content:""; position:absolute; inset:0;
+    background: linear-gradient(90deg, #7c5cff33, #2da1ff33 50%, #19c37d33),
+               linear-gradient(180deg, rgba(255,255,255,.04), transparent);
+    transform: scaleX(calc(var(--prog) / 100)); transform-origin: left center;
+    transition: transform .35s ease, opacity .2s ease;
+    opacity:0; z-index:0;
+  }
+  #run.loading::before{ opacity:1; }
+  #run.loading.indet::after{
+    content: "";
+    position: absolute; inset: 0;
+    background: linear-gradient(120deg, transparent 0%, rgba(255,255,255,.12) 45%, rgba(255,255,255,.28) 50%, rgba(255,255,255,.12) 55%, transparent 100%);
+    animation: run-sweep 1.1s linear infinite; z-index: 0;
+  }
+  #run .label, #run .spinner{ position: relative; z-index: 1; }
+  @keyframes run-sweep { 0%{ transform: translateX(-100%);} 100%{ transform: translateX(100%);} }
 
-/* show + animate ONLY when loading */
-#run.btn.acc.loading::after{
-  opacity:1;
-  animation: shimmer 1.2s linear infinite;
-}
+  /* Footer button palette tweaks */
+  .footer .btn{ transition: filter .15s ease, box-shadow .25s ease, transform .05s ease; }
+  .footer .btn-save{ color:#d3ffe9; background:linear-gradient(180deg,#0a1411,#08110e)!important; border:1px solid #144233!important; box-shadow: inset 0 1px 0 #0f1f19; }
+  .footer .btn-save:hover{ filter:brightness(1.05); box-shadow: inset 0 1px 0 #142a22, 0 0 14px rgba(25,195,125,.15); }
+  .footer .btn-save:active{ transform: translateY(1px); }
+  .footer .btn-exit{ color:#ffd7d7; background:linear-gradient(180deg,#150909,#100606)!important; border:1px solid #4a1417!important; box-shadow: inset 0 1px 0 #1a0c0d; }
+  .footer .btn-exit:hover{ filter:brightness(1.05); box-shadow: inset 0 1px 0 #211013, 0 0 14px rgba(255,77,79,.15); }
+  .footer .btn-exit:active{ transform: translateY(1px); }
+  .footer .btn-ic{ margin-right:8px; opacity:.9; }
 
-@keyframes shimmer {
-  0%   { transform: translateX(-120%) rotate(25deg); }
-  100% { transform: translateX(220%)  rotate(25deg); }
-}
+  /* Update banner */
+  .hidden { display: none !important; }
+  #update-banner { display: flex; gap: 0.25em; }
 
-/* progress fill underneath label, only visible when .loading */
-#run{
-  --prog: 0;                 /* 0..100 */
-  position: relative;
-  overflow: hidden;
-}
-#run::before{
-  content:"";
-  position:absolute; inset:0;
-  background:
-    linear-gradient(90deg, #7c5cff33, #2da1ff33 50%, #19c37d33),
-    linear-gradient(180deg, rgba(255,255,255,.04), transparent);
-  transform: scaleX(calc(var(--prog) / 100));
-  transform-origin: left center;
-  transition: transform .35s ease, opacity .2s ease;
-  opacity:0;                  /* hidden when idle */
-  z-index:0;
-}
-#run.loading::before{ opacity:1; }   /* only when loading */
-#run .label, #run .spinner{ position: relative; z-index: 1; }
-
-
-/* optional: subtle moving stripes when we don't have step info (indeterminate) */
-#run.loading.indet::after{
-  content: "";
-  position: absolute; inset: 0;
-  background:
-    linear-gradient(120deg,
-      transparent 0%,
-      rgba(255,255,255,.12) 45%,
-      rgba(255,255,255,.28) 50%,
-      rgba(255,255,255,.12) 55%,
-      transparent 100%);
-  animation: run-sweep 1.1s linear infinite;
-  z-index: 0;
-}
-
-/* keep label/spinner above fills */
-#run .label, #run .spinner{ position: relative; z-index: 1; }
-
-@keyframes run-sweep {
-  0%   { transform: translateX(-100%); }
-  100% { transform: translateX(100%); }
-}
-
-/* DARK modern buttons (override) */
-.footer .btn{
-  padding: 12px 16px;
-  border-radius: 14px;
-  font-weight: 700;
-  transition: filter .15s ease, box-shadow .25s ease, transform .05s ease;
-}
-
-/* Save = very dark green */
-.footer .btn-save{
-  color: #d3ffe9;
-  background: linear-gradient(180deg,#0a1411,#08110e) !important;  /* darker */
-  border: 1px solid #144233 !important;                           /* deep green edge */
-  box-shadow: inset 0 1px 0 #0f1f19;                               /* subtle depth */
-}
-.footer .btn-save:hover{ filter: brightness(1.05); box-shadow: inset 0 1px 0 #142a22, 0 0 14px rgba(25,195,125,.15); }
-.footer .btn-save:active{ transform: translateY(1px); }
-
-/* Exit = very dark red */
-.footer .btn-exit{
-  color: #ffd7d7;
-  background: linear-gradient(180deg,#150909,#100606) !important;  /* darker */
-  border: 1px solid #4a1417 !important;                            /* deep red edge */
-  box-shadow: inset 0 1px 0 #1a0c0d;
-}
-.footer .btn-exit:hover{ filter: brightness(1.05); box-shadow: inset 0 1px 0 #211013, 0 0 14px rgba(255,77,79,.15); }
-.footer .btn-exit:active{ transform: translateY(1px); }
-
-/* optional: small leading icon spacing if you use one */
-.footer .btn-ic{ margin-right:8px; opacity:.9; }
-
-  
 </style>
 </head><body>
 <header>
+  <span id="app-version" class="subtle"></span>
   <div class="brand">
     <svg class="logo" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-label="Plex ⇄ SIMKL Watchlist Sync">
       <defs><linearGradient id="cw-g" x1="0" y1="0" x2="24" y2="24" gradientUnits="userSpaceOnUse">
@@ -565,11 +435,19 @@ def get_index_html() -> str:
       <div class="badges" id="conn-badges" style="margin-left:auto">
         <span id="badge-plex" class="badge no"><span class="dot no"></span>Plex: Not connected</span>
         <span id="badge-simkl" class="badge no"><span class="dot no"></span>SIMKL: Not connected</span>
+        <div id="update-banner" class="hidden">
+          <span id="update-text">A new version is available.</span>
+          <a id="update-link" href="https://github.com/cenodude/plex-simkl-watchlist-sync/releases"
+            target="_blank" rel="noopener noreferrer">Get update</a>
+        </div>
+        <button id="btn-status-refresh" class="iconbtn" title="Re-check Plex &amp; SIMKL status" aria-label="Refresh status" onclick="manualRefreshStatus()">
+          <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+            <path d="M21 12a9 9 0 1 1-2.64-6.36" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M21 5v5h-5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button>
       </div>
     </div>
-
-    <!-- Scheduler banner (compact, only visible when enabled) -->
-    <!-- <div id="schedBanner" class="msg ok" style="display:none; width:auto; max-width:100%;">Scheduler is <b>running</b> • next run: <b id="schedNext">—</b></div> -->
 
     <div class="sync-status">
       <div id="sync-icon" class="sync-icon sync-warn"></div>
@@ -577,62 +455,55 @@ def get_index_html() -> str:
       <span id="sched-inline" class="sub muted" style="margin-left:8px; white-space:nowrap; display:none"></span>
     </div>
 
-      <div class="chiprow">
-        <div class="chip">Plex: <span id="chip-plex">–</span></div>
-        <div class="chip">SIMKL: <span id="chip-simkl">–</span></div>
-        <div class="chip">Duration: <span id="chip-dur">–</span></div>
-        <div class="chip">Exit: <span id="chip-exit">–</span></div>
+    <div class="chiprow">
+      <div class="chip">Plex: <span id="chip-plex">–</span></div>
+      <div class="chip">SIMKL: <span id="chip-simkl">–</span></div>
+      <div class="chip">Duration: <span id="chip-dur">–</span></div>
+      <div class="chip">Exit: <span id="chip-exit">–</span></div>
+    </div>
+
+    <div class="sep"></div>
+    <div class="action-row">
+      <div class="action-buttons">
+        <button id="run" class="btn acc" onclick="runSync()"><span class="label">Synchronize</span><span class="spinner" aria-hidden="true"></span></button>
+        <button class="btn" onclick="toggleDetails()">View details</button>
+        <button class="btn" onclick="copySummary(this)">Copy summary</button>
+        <button class="btn" onclick="downloadSummary()">Download report (JSON)</button>
       </div>
-
-      <div class="sep"></div>
-      <div class="action-row">
-        <div class="action-buttons">
-          <button id="run" class="btn acc" onclick="runSync()"><span class="label">Synchronize</span><span class="spinner" aria-hidden="true"></span></button>
-          <button class="btn" onclick="toggleDetails()">View details</button>
-          <button class="btn" onclick="copySummary()">Copy summary</button>
-          <button class="btn" onclick="downloadSummary()">Download report (JSON)</button>
-        </div>
-        <div class="stepper" aria-label="Sync progress">
-          <div class="step"><div class="tl-dot" id="tl-start"></div><div class="muted">Start</div></div>
-          <div class="step"><div class="tl-dot" id="tl-pre"></div><div class="muted">Pre-counts</div></div>
-          <div class="step"><div class="tl-dot" id="tl-post"></div><div class="muted">Post</div></div>
-          <div class="step"><div class="tl-dot" id="tl-done"></div><div class="muted">Done</div></div>
-        </div>
+      <div class="stepper" aria-label="Sync progress">
+        <div class="step"><div class="tl-dot" id="tl-start"></div><div class="muted">Start</div></div>
+        <div class="step"><div class="tl-dot" id="tl-pre"></div><div class="muted">Pre-counts</div></div>
+        <div class="step"><div class="tl-dot" id="tl-post"></div><div class="muted">Post</div></div>
+        <div class="step"><div class="tl-dot" id="tl-done"></div><div class="muted">Done</div></div>
       </div>
+    </div>
 
-      <div id="details" class="details hidden">
-        <div class="details-grid">
-          <!-- LEFT: live output from plex_simkl_watchlist_sync.py -->
-          <div class="det-left">
-            <div class="title" style="margin-bottom:6px;font-weight:700">Sync output</div>
-            <pre id="det-log" class="log"></pre>
-          </div>
-
-        <!-- RIGHT: run metadata -->
+    <div id="details" class="details hidden">
+      <div class="details-grid">
+        <div class="det-left">
+          <div class="title" style="margin-bottom:6px;font-weight:700">Sync output</div>
+          <pre id="det-log" class="log"></pre>
+        </div>
         <div class="det-right">
           <div class="meta-card">
             <div class="meta-grid">
               <div class="meta-label">Command</div>
               <div class="meta-value"><span id="det-cmd" class="pillvalue truncate">–</span></div>
-
               <div class="meta-label">Version</div>
               <div class="meta-value"><span id="det-ver" class="pillvalue">–</span></div>
-
               <div class="meta-label">Started</div>
               <div class="meta-value"><span id="det-start" class="pillvalue mono">–</span></div>
-
               <div class="meta-label">Finished</div>
               <div class="meta-value"><span id="det-finish" class="pillvalue mono">–</span></div>
             </div>
-
             <div class="meta-actions">
-              <button class="btn" onclick="copySummary()">Copy summary</button>
+              <button class="btn" onclick="copySummary(this)">Copy summary</button>
               <button class="btn" onclick="downloadSummary()">Download</button>
             </div>
           </div>
         </div>
       </div>
-
+    </div>
   </section>
 
   <!-- MAIN: Poster carousel -->
@@ -665,12 +536,10 @@ def get_index_html() -> str:
         <div class="grid2">
           <div><label>Mode</label><select id="mode"><option value="two-way">two-way</option><option value="mirror">mirror</option></select></div>
           <div><label>Source of truth (mirror only)</label><select id="source"><option value="plex">plex</option><option value="simkl">simkl</option></select></div>
-          
         </div>
       </div>
     </div>
 
-    <!-- SCHEDULING -->
     <div class="section" id="sec-scheduling">
       <div class="head" onclick="toggleSection('sec-scheduling')"><span class="chev">▶</span><strong>Scheduling</strong></div>
       <div class="body">
@@ -691,11 +560,10 @@ def get_index_html() -> str:
       </div>
     </div>
 
-    <!-- TROUBLESHOOT -->
     <div class="section" id="sec-troubleshoot">
       <div class="head" onclick="toggleSection('sec-troubleshoot')"><span class="chev">▶</span><strong>Troubleshoot</strong></div>
       <div class="body">
-        <div class="sub">Use these actions to fix common issues. They are safe but cannot be undone.</div>
+        <div class="sub">Use these actions to reset application state. They are safe but cannot be undone.</div>
         <div><label>Debug</label><select id="debug"><option value="false">off</option><option value="true">on</option></select></div>
         <div class="chiprow">
           <button class="btn danger" onclick="clearState()">Clear State</button>
@@ -719,11 +587,10 @@ def get_index_html() -> str:
                   <input id="plex_token" placeholder="empty = not set">
                   <button class="btn" onclick="copyField('plex_token', this)">Copy</button>
                 </div>
-
               </div>
               <div>
                 <label>PIN</label>
-                <div style="display:flex;gap:8px"><input id="plex_pin" placeholder="request to fill" readonly><button class="btn" onclick="copyField('plex_pin')">Copy</button></div>
+                <div style="display:flex;gap:8px"><input id="plex_pin" placeholder="request to fill" readonly><button class="btn" onclick="copyField('plex_pin', this)">Copy</button></div>
               </div>
             </div>
             <div style="display:flex;gap:8px"><button class="btn" onclick="requestPlexPin()">Request Token</button><div style="align-self:center;color:var(--muted)">Opens plex.tv/link (PIN copied to clipboard)</div></div>
@@ -737,28 +604,19 @@ def get_index_html() -> str:
           <div class="head" onclick="toggleSection('sec-simkl')"><span class="chev">▶</span><strong>SIMKL</strong></div>
           <div class="body">
             <div class="grid2">
-              <div>
-                <label>Client ID</label>
-                <input id="simkl_client_id" placeholder="Your SIMKL client id" oninput="updateSimklButtonState(); updateSimklHint();">
-              </div>
-              <div>
-                <label>Client Secret</label>
-                <input id="simkl_client_secret" placeholder="Your SIMKL client secret" oninput="updateSimklButtonState(); updateSimklHint();">
-              </div>
+              <div><label>Client ID</label><input id="simkl_client_id" placeholder="Your SIMKL client id" oninput="updateSimklButtonState(); updateSimklHint();"></div>
+              <div><label>Client Secret</label><input id="simkl_client_secret" placeholder="Your SIMKL client secret" oninput="updateSimklButtonState(); updateSimklHint();"></div>
             </div>
-
             <div id="simkl_hint" class="msg warn hidden">
               You need a SIMKL API key. Create one at
               <a href="https://simkl.com/settings/developer/" target="_blank" rel="noopener">SIMKL Developer</a>.
               Set the Redirect URL to <code id="redirect_uri_preview"></code>.
               <button class="btn" style="margin-left:8px" onclick="copyRedirect()">Copy Redirect URL</button>
             </div>
-
             <div style="display:flex;gap:8px;margin-top:8px">
               <button id="simkl_start_btn" class="btn" onclick="startSimkl()" disabled>Start SIMKL Auth</button>
               <div style="align-self:center;color:var(--muted)">Opens SIMKL authorize, callback to this webapp</div>
             </div>
-
             <div class="grid2" style="margin-top:8px">
               <div><label>Access token</label><input id="simkl_access_token" readonly placeholder="empty = not set"></div>
             </div>
@@ -767,7 +625,6 @@ def get_index_html() -> str:
           </div>
         </div>
 
-
         <!-- TMDb -->
         <div class="section" id="sec-tmdb">
           <div class="head" onclick="toggleSection('sec-tmdb')"><span class="chev">▶</span><strong>TMDb</strong></div>
@@ -775,9 +632,7 @@ def get_index_html() -> str:
             <div class="grid2">
               <div style="grid-column:1 / -1">
                 <label>API key</label>
-                <input id="tmdb_api_key" placeholder="Your TMDb API key"
-                       oninput="this.dataset.dirty='1'; updateTmdbHint()">
-
+                <input id="tmdb_api_key" placeholder="Your TMDb API key" oninput="this.dataset.dirty='1'; updateTmdbHint()">
                 <div id="tmdb_hint" class="msg warn hidden">
                   TMDb is optional but recommended to enrich posters & metadata in the preview.
                   Get an API key at
@@ -788,17 +643,12 @@ def get_index_html() -> str:
             </div>
           </div>
         </div>
-
       </div>
     </div>
 
     <div class="footer">
-      <button class="btn btn-save" onclick="saveSettings()">
-        <span class="btn-ic">✔</span> Save
-      </button>
-      <button class="btn btn-exit" onclick="showTab('main')">
-        <span class="btn-ic">↩</span> Exit
-      </button>
+      <button class="btn btn-save" onclick="saveSettings()"><span class="btn-ic">✔</span> Save</button>
+      <button class="btn btn-exit" onclick="showTab('main')"><span class="btn-ic">↩</span> Exit</button>
       <span id="save_msg" class="msg ok hidden">Settings saved ✓</span>
     </div>
   </section>
@@ -807,109 +657,99 @@ def get_index_html() -> str:
     <div class="title">Raw log (Debug)</div>
     <div id="log" class="log"></div>
   </aside>
+
 </main>
 
 <script>
-
+  /* ====== Globals ====== */
   let lastStatusMs = 0;
-  const STATUS_MIN_INTERVAL = 120000; // 2 minutes (tweak to taste)
+  const STATUS_MIN_INTERVAL = 120000; // ms
 
-  // Compute the correct redirect URL for this webapp
+  let busy=false, esDet=null, esSum=null, plexPoll=null, simklPoll=null, appDebug=false, currentSummary=null;
+  let wallLoaded=false, _lastSyncEpoch=null, _wasRunning=false;
+  window._ui = { status: null, summary: null };
+
+  /* ====== Utilities ====== */
   function computeRedirectURI(){ return location.origin + '/callback'; }
 
-  function updateSimklButtonState(){
-    const id  = (document.getElementById('simkl_client_id')?.value || '').trim();
-    const sec = (document.getElementById('simkl_client_secret')?.value || '').trim();
-    const btn = document.getElementById('simkl_start_btn');
-    if (btn) btn.disabled = !(id && sec);
+  function flashCopy(btn, ok, msg){
+    if (!btn) { if(!ok) alert(msg || 'Copy failed'); return; }
+    const old = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = ok ? 'Copied ✓' : (msg || 'Copy failed');
+    setTimeout(()=>{ btn.textContent = old; btn.disabled = false; }, 1200);
   }
 
-  // Hide SIMKL hint if client/secret exist locally OR in saved config.
-  // Also keeps the Redirect URL preview in sync.
-  function updateSimklHint(){
-    const hint = document.getElementById('simkl_hint');
-    if (!hint) return;
-
-    const prev = document.getElementById('redirect_uri_preview');
-    if (prev) prev.textContent = computeRedirectURI();
-
-    const idVal  = (document.getElementById('simkl_client_id')?.value  || '').trim();
-    const secVal = (document.getElementById('simkl_client_secret')?.value || '').trim();
-
-    // local-first: no fetch; no flicker
-    const bothFilled = !!idVal && !!secVal;
-    hint.classList.toggle('hidden', bothFilled);
+  function setRunProgress(pct){
+    const btn = document.getElementById('run');
+    if (!btn) return;
+    const p = Math.max(0, Math.min(100, Math.floor(pct)));
+    btn.style.setProperty('--prog', String(p));
   }
 
-  // Function to update the watchlist preview
-  async function updateWatchlistPreview() {
-    // Call the loadWatchlist function to reload the updated posters
-    await loadWatchlist();
-  }
-
-// Set the progress percentage (0–100) on the Run button
-function setRunProgress(pct){
-  const btn = document.getElementById('run');
-  if (!btn) return;
-  const p = Math.max(0, Math.min(100, Math.floor(pct)));
-  btn.style.setProperty('--prog', String(p));
-}
-
-  // Turn on button visuals; indeterminate until we get timeline steps
   function startRunVisuals(indeterminate = true){
     const btn = document.getElementById('run');
     if (!btn) return;
     btn.classList.add('loading');
     btn.classList.toggle('indet', !!indeterminate);
-    if (indeterminate) setRunProgress(8); // small head start
+    if (indeterminate) setRunProgress(8);
   }
 
-  // Finish + reset visuals
   function stopRunVisuals(){
     const btn = document.getElementById('run');
     if (!btn) return;
     setRunProgress(100);
     btn.classList.remove('indet');
-    setTimeout(() => {
-      btn.classList.remove('loading');
-      setRunProgress(0);
-    }, 700); // let users see the "100%" briefly
+    setTimeout(() => { btn.classList.remove('loading'); setRunProgress(0); }, 700);
   }
 
-  // Map timeline to progress fill
   function updateProgressFromTimeline(tl){
     const order = ['start','pre','post','done'];
     let done = 0;
     for (const k of order){ if (tl && tl[k]) done++; }
     let pct = (done / order.length) * 100;
-    if (pct > 0 && pct < 15) pct = 15; // keep a bit of early movement
+    if (pct > 0 && pct < 15) pct = 15;
     setRunProgress(pct);
   }
 
+  function recomputeRunDisabled() {
+    const btn = document.getElementById('run');
+    if (!btn) return;
+    const busyNow = !!window.busy;
+    const canRun = !(window._ui?.status) ? true : !!window._ui.status.can_run;
+    const running = !!(window._ui?.summary && window._ui.summary.running);
+    btn.disabled = busyNow || running || !canRun;
+  }
 
-  // Listen for changes in localStorage (other browsers)
-  window.addEventListener('storage', (event) => {
-    if (event.key === 'wl_hidden') {
-      // Reload the watchlist when there's a change in the deleted items
-      loadWatchlist();  // This will reload the watchlist and reflect the "DELETED" overlay
+  function setTimeline(tl){ ['start','pre','post','done'].forEach(k=>{ document.getElementById('tl-'+k).classList.toggle('on', !!(tl && tl[k])); }); }
+
+  function setSyncHeader(status, msg){
+    const icon = document.getElementById('sync-icon');
+    icon.classList.remove('sync-ok','sync-warn','sync-bad'); icon.classList.add(status);
+    document.getElementById('sync-status-text').textContent = msg;
+  }
+
+  function relTimeFromEpoch(epoch){
+    if(!epoch) return '';
+    const secs = Math.max(1, Math.floor(Date.now()/1000 - epoch));
+    const units = [["y",31536000],["mo",2592000],["d",86400],["h",3600],["m",60],["s",1]];
+    for(const [label,span] of units){
+      if(secs >= span) return Math.floor(secs/span) + label + " ago";
     }
-  });
+    return "just now";
+  }
 
-  let busy=false, esLog=null, esSum=null, plexPoll=null, simklPoll=null, appDebug=false, currentSummary=null;
-  let wallLoaded=false, _lastSyncEpoch=null, _wasRunning=false;
-
+  /* ====== Tabs ====== */
   async function showTab(n) {
     const pageSettings = document.getElementById('page-settings');
     const pageWatchlist = document.getElementById('page-watchlist');
     const logPanel = document.getElementById('log-panel');
     const layout = document.getElementById('layout');
 
-    // Tabs active state
     document.getElementById('tab-main').classList.toggle('active', n === 'main');
     document.getElementById('tab-watchlist').classList.toggle('active', n === 'watchlist');
     document.getElementById('tab-settings').classList.toggle('active', n === 'settings');
 
-    // Sections visibility
     document.getElementById('ops-card').classList.toggle('hidden', n !== 'main');
     document.getElementById('placeholder-card').classList.toggle('hidden', n !== 'main');
     pageWatchlist.classList.toggle('hidden', n !== 'watchlist');
@@ -920,139 +760,141 @@ function setRunProgress(pct){
       refreshStatus();
       layout.classList.toggle('full', !appDebug);
       if (!esSum) { openSummaryStream(); }
-      await updatePreviewVisibility();    // Load posters for Main
+      await updatePreviewVisibility();
       refreshSchedulingBanner();
     } else if (n === 'watchlist') {
       layout.classList.add('single');
       layout.classList.remove('full');
       logPanel.classList.add('hidden');
-      loadWatchlist();                    // Rebuild watchlist grid
-    } else { // n === 'settings'
+      loadWatchlist();
+    } else { // settings
       layout.classList.add('single');
       layout.classList.remove('full');
       logPanel.classList.add('hidden');
-
-      // Open sections so inputs are visible
       document.getElementById('sec-auth')?.classList.add('open');
-      document.getElementById('sec-plex')?.classList.add('close');
-      document.getElementById('sec-simkl')?.classList.add('close');
-      document.getElementById('sec-tmdb')?.classList.add('close');
-
-      // Load config first so fields are populated, then compute UI state
       await loadConfig();
-      updateTmdbHint?.();
-      updateSimklHint?.();
-      updateSimklButtonState?.();
-      loadScheduling?.();
+      updateTmdbHint?.(); updateSimklHint?.(); updateSimklButtonState?.(); loadScheduling?.();
     }
   }
-  
-  function toggleSection(id) { 
-    document.getElementById(id).classList.toggle('open'); 
-  }
+  function toggleSection(id){ document.getElementById(id).classList.toggle('open'); }
 
-  function setBusy(v) {
-    busy = v;
-    recomputeRunDisabled();
-  }
+  /* ====== Run (synchronize) ====== */
+  function setBusy(v){ busy = v; recomputeRunDisabled(); }
 
-// Global UI snapshot
-window._ui = { status: null, summary: null };
-
-// The only place that decides whether the Run button is disabled
-function recomputeRunDisabled() {
-  const btn = document.getElementById('run');
-  if (!btn) return;
-
-  const busyNow = !!window.busy;
-  const canRun = !(window._ui?.status) ? true : !!window._ui.status.can_run;
-  const running = !!(window._ui?.summary && window._ui.summary.running);
-
-  btn.disabled = busyNow || running || !canRun;
-}
-  
-//FIX ... I HOPE THIS WORKS
   async function runSync() {
-      if (busy) return;
-
-      const btn = document.getElementById('run');
-      setBusy(true);
-      try { btn?.classList.add('glass'); } catch(_){}
-
-      try {
-          const resp = await fetch('/api/run', { method: 'POST' });
-          const j = await resp.json();
-
-          if (!resp.ok || !j || j.ok !== true) {
-              setSyncHeader('sync-bad', `Failed to start${j?.error ? ` – ${j.error}` : ''}`);
-          } else {
-              // After sync completes, update the watchlist
-              updateWatchlistPreview();  // This will trigger the refresh of the Watchlist Preview
-          }
-      } catch (e) {
-          setSyncHeader('sync-bad', 'Failed to reach server');
-      } finally {
-          setBusy(false);
-          recomputeRunDisabled();
-          refreshStatus();
+    if (busy) return;
+    const btn = document.getElementById('run');
+    setBusy(true);
+    try { btn?.classList.add('glass'); } catch(_){}
+    try {
+      const resp = await fetch('/api/run', { method: 'POST' });
+      const j = await resp.json();
+      if (!resp.ok || !j || j.ok !== true) {
+        setSyncHeader('sync-bad', `Failed to start${j?.error ? ` – ${j.error}` : ''}`);
+      } else {
+        await updateWatchlistPreview();
       }
-  }
-
-
-function logHTML(t){ const el=document.getElementById('log'); el.innerHTML += t + "<br>"; el.scrollTop = el.scrollHeight; }
-
-  function setPlexSuccess(show){ document.getElementById('plex_msg').classList.toggle('hidden', !show); }
-  function setSimklSuccess(show){ document.getElementById('simkl_msg').classList.toggle('hidden', !show); }
-
-  async function copyField(id, btn){
-    const el = document.getElementById(id);
-    const text = el ? (('value' in el) ? el.value : (el.textContent || '')) : '';
-    if (!text) { flashCopy(btn, false, 'Empty'); return; }
-
-    let ok = false;
-    try {                       // modern API
-      await navigator.clipboard.writeText(text);
-      ok = true;
-    } catch {
-      try {                     // fallback for non-HTTPS
-        const ta = document.createElement('textarea');
-        ta.value = text;
-        ta.setAttribute('readonly','');
-        ta.style.position = 'fixed';
-        ta.style.opacity = '0';
-        document.body.appendChild(ta);
-        ta.focus(); ta.select();
-        ok = document.execCommand('copy');
-        document.body.removeChild(ta);
-      } catch { ok = false; }
+    } catch (e) {
+      setSyncHeader('sync-bad', 'Failed to reach server');
+    } finally {
+      setBusy(false);
+      recomputeRunDisabled();
+      refreshStatus();
     }
-    flashCopy(btn, ok);
   }
 
-  function flashCopy(btn, ok, msg){
-    if (!btn) { if(!ok) alert(msg || 'Copy failed'); return; }
-    const old = btn.textContent;
-    btn.disabled = true;
-    btn.textContent = ok ? 'Copied ✓' : (msg || 'Copy failed');
-    setTimeout(()=>{ btn.textContent = old; btn.disabled = false; }, 1000);
+  /* Version check + update notification */
+  const UPDATE_CHECK_INTERVAL_MS = 12 * 60 * 60 * 1000;
+  let _updInfo = null;
+
+  function openUpdateModal(){
+    if(!_updInfo) return;
+    document.getElementById('upd-modal').classList.remove('hidden');
+    document.getElementById('upd-title').textContent = `v${_updInfo.latest}`;
+    document.getElementById('upd-notes').textContent = _updInfo.notes || '(No release notes)';
+    document.getElementById('upd-link').href = _updInfo.url || '#';
+  }
+  function closeUpdateModal(){ document.getElementById('upd-modal').classList.add('hidden'); }
+  function dismissUpdate(){
+    if(_updInfo?.latest){ localStorage.setItem('dismissed_version', _updInfo.latest); }
+    document.getElementById('upd-pill').classList.add('hidden');
+    closeUpdateModal();
   }
 
-  function computeRedirectURI(){ return window.location.origin + '/callback'; }
-  async function copyRedirect(){ try{ await navigator.clipboard.writeText(computeRedirectURI()); }catch(_){} }
-  function isPlaceholder(v, ph){ return (v||'').trim().toUpperCase() === ph.toUpperCase(); }
+  async function checkForUpdate() {
+    try {
+      const r = await fetch('/api/version', { cache: 'no-store' });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const j = await r.json();
 
-  function setTimeline(tl){ ['start','pre','post','done'].forEach(k=>{ document.getElementById('tl-'+k).classList.toggle('on', !!(tl && tl[k])); }); }
+      const cur = j.current || '0.0.0';
+      const latest = j.latest || null;
+      const url = j.html_url || 'https://github.com/cenodude/plex-simkl-watchlist-sync/releases';
+      const hasUpdate = !!j.update_available;
 
-  function setSyncHeader(status, msg){
-    const icon = document.getElementById('sync-icon');
-    icon.classList.remove('sync-ok','sync-warn','sync-bad'); icon.classList.add(status);
-    document.getElementById('sync-status-text').textContent = msg;
+      // Show current version somewhere
+      const vEl = document.getElementById('app-version');
+      if (vEl) vEl.textContent = `Version ${cur}`;
+
+      const banner = document.getElementById('update-banner');
+      const link = document.getElementById('update-link');
+      const text = document.getElementById('update-text');
+
+      if (hasUpdate && banner && link) {
+        link.href = url;
+        // nice readable text
+        if (text && latest) {
+          text.textContent = `Update ${latest} is available (you have ${cur}).`;
+        }
+        banner.classList.remove('hidden');
+        banner.style.display = 'flex';
+      } else if (banner) {
+        banner.classList.add('hidden');
+        banner.style.display = 'none';
+      }
+    } catch (err) {
+      // silently ignore; we don't want to block the UI
+      console.debug('Version check failed:', err);
+    }
   }
 
+  // (+) Make sure this runs once after DOM is ready
+  document.addEventListener('DOMContentLoaded', () => {
+    checkForUpdate();
+
+    // Defensive: ensure clicking on the banner link always opens in a new tab
+    const link = document.getElementById('update-link');
+    if (link) {
+      link.addEventListener('click', (e) => {
+        // If href is valid, let the browser handle it (target=_blank already set)
+        if (!link.href || link.getAttribute('href') === '#') {
+          e.preventDefault();
+        }
+      });
+    }
+  });
+
+
+  // tiny toast you already have styling for messages; here's a quick helper
+  function showToast(text, onClick){
+    const toast = document.createElement('div');
+    toast.className = 'msg ok';
+    toast.textContent = text;
+    toast.style.position = 'fixed';
+    toast.style.right = '16px'; toast.style.bottom = '16px';
+    toast.style.zIndex = 1000; toast.style.cursor = 'pointer';
+    toast.onclick = () => { onClick && onClick(); toast.remove(); }
+    document.body.appendChild(toast);
+    setTimeout(()=>toast.classList.add('hidden'), 3000);
+  }
+
+  // call at boot, and on a timer
+  checkForUpdate(true);
+  setInterval(()=>checkForUpdate(false), UPDATE_CHECK_INTERVAL_MS);
+
+  /* ====== Summary stream + details log ====== */
   function renderSummary(sum){
     currentSummary = sum;
-
-    // snapshot for central disabled-logic
     window._ui = window._ui || {};
     window._ui.summary = sum;
 
@@ -1078,45 +920,31 @@ function logHTML(t){ const el=document.getElementById('log'); el.innerHTML += t 
     document.getElementById('det-start').textContent  = sum.started_at || '–';
     document.getElementById('det-finish').textContent = sum.finished_at|| '–';
 
-    // ---- timeline & button progress ----
     const tl = sum.timeline || {};
-    setTimeline(tl);                 // your existing dots
-    updateProgressFromTimeline?.(tl);// fill the button based on steps
+    setTimeline(tl);
+    updateProgressFromTimeline?.(tl);
 
     const btn = document.getElementById('run');
     if (btn){
       if (sum.running){
-        // turn on loading visuals
         btn.classList.add('glass','loading');
-
-        // if we have step info -> determinate, otherwise show indeterminate sweep
         if (tl.pre || tl.post || tl.done) btn.classList.remove('indet');
         else                               btn.classList.add('indet');
-
-        // give a tiny head start when a run just began (nice UX)
         if (!_wasRunning && !(tl.pre || tl.post || tl.done)) { setRunProgress?.(8); }
       } else {
-        // run ended
         if (_wasRunning){
           setRunProgress?.(100);
           btn.classList.remove('indet');
-          // let users see 100% briefly, then reset button
-          setTimeout(()=>{
-            btn.classList.remove('loading','glass');
-            setRunProgress?.(0);
-          }, 700);
+          setTimeout(()=>{ btn.classList.remove('loading','glass'); setRunProgress?.(0); }, 700);
         } else {
-          // already idle
           btn.classList.remove('loading','indet','glass');
           setRunProgress?.(0);
         }
       }
     }
 
-    // recompute disabled state in one place
     if (typeof recomputeRunDisabled === 'function') recomputeRunDisabled();
 
-    // when transitioning running -> not running, refresh posters & scheduler text
     if (_wasRunning && !sum.running) {
       window.wallLoaded = false;
       updatePreviewVisibility?.();
@@ -1132,38 +960,29 @@ function logHTML(t){ const el=document.getElementById('log'); el.innerHTML += t 
     fetch('/api/run/summary').then(r=>r.json()).then(renderSummary).catch(()=>{});
   }
 
-  let esDet = null;
-
   function openDetailsLog(){
     const el = document.getElementById('det-log');
     if (!el) return;
-    el.innerHTML = '';                 // start fresh
+    el.innerHTML = '';
     if (esDet) { esDet.close(); esDet = null; }
-    esDet = new EventSource('/api/logs/stream?tag=SYNC');  // <- backend route below
-
+    esDet = new EventSource('/api/logs/stream?tag=SYNC');
     esDet.onmessage = (ev) => {
       if (!ev?.data) return;
-      el.insertAdjacentHTML('beforeend', ev.data + '<br>');  // lines are HTML-escaped
+      el.insertAdjacentHTML('beforeend', ev.data + '<br>');
       el.scrollTop = el.scrollHeight;
     };
     esDet.onerror = () => { try { esDet?.close(); } catch(_){} esDet = null; };
   }
-
-  function closeDetailsLog(){
-    try { esDet?.close(); } catch(_){}
-    esDet = null;
-  }
-
+  function closeDetailsLog(){ try { esDet?.close(); } catch(_){ } esDet=null; }
   function toggleDetails(){
     const d = document.getElementById('details');
     d.classList.toggle('hidden');
     if (!d.classList.contains('hidden')) openDetailsLog(); else closeDetailsLog();
   }
-
   window.addEventListener('beforeunload', closeDetailsLog);
 
+  /* ====== Summary copy / download ====== */
   async function copySummary(btn){
-    // Ensure we have a summary
     if (!window.currentSummary) {
       try { window.currentSummary = await fetch('/api/run/summary').then(r=>r.json()); }
       catch { flashCopy(btn, false, 'No summary'); return; }
@@ -1171,7 +990,6 @@ function logHTML(t){ const el=document.getElementById('log'); el.innerHTML += t 
     const s = window.currentSummary;
     if (!s) { flashCopy(btn, false, 'No summary'); return; }
 
-    // Build text
     const lines = [];
     lines.push(`Plex ⇄ SIMKL Watchlist Sync ${s.version || ''}`.trim());
     if (s.started_at)   lines.push(`Start:   ${s.started_at}`);
@@ -1183,39 +1001,41 @@ function logHTML(t){ const el=document.getElementById('log'); el.innerHTML += t 
     if (s.exit_code != null)    lines.push(`Exit:     ${s.exit_code}`);
     const text = lines.join('\n');
 
-    // Try modern clipboard, then fallback
     let ok = false;
-    try {
-      await navigator.clipboard.writeText(text);
-      ok = true;
-    } catch {
-      try {
+    try { await navigator.clipboard.writeText(text); ok = True; } catch(e) { ok = false; }
+    if (!ok){
+      try{
         const ta = document.createElement('textarea');
-        ta.value = text;
-        ta.setAttribute('readonly','');
-        ta.style.position = 'fixed';
-        ta.style.opacity = '0';
-        document.body.appendChild(ta);
-        ta.focus(); ta.select();
-        ok = document.execCommand('copy');
-        document.body.removeChild(ta);
-      } catch { ok = false; }
+        ta.value = text; ta.setAttribute('readonly','');
+        ta.style.position = 'fixed'; ta.style.opacity = '0';
+        document.body.appendChild(ta); ta.focus(); ta.select();
+        ok = document.execCommand('copy'); document.body.removeChild(ta);
+      }catch(e){ ok = false; }
     }
-
     flashCopy(btn, ok);
   }
-
-  function flashCopy(btn, ok, msg){
-    if (!btn) { if(!ok) alert(msg || 'Copy failed'); return; }
-    const old = btn.textContent;
-    btn.disabled = true;
-    btn.textContent = ok ? 'Copied ✓' : (msg || 'Copy failed');
-    setTimeout(()=>{ btn.textContent = old; btn.disabled = false; }, 1200);
-  }
-
-  
   function downloadSummary(){ window.open('/api/run/summary/file', '_blank'); }
 
+  /* ====== Status refresh (Plex & SIMKL) ====== */
+  function setRefreshBusy(busy){
+    const btn = document.getElementById('btn-status-refresh');
+    if (!btn) return;
+    btn.disabled = !!busy;
+    btn.classList.toggle('loading', !!busy);
+  }
+  async function manualRefreshStatus(){
+    const btn = document.getElementById('btn-status-refresh');
+    try{
+      setRefreshBusy(true);
+      btn.classList.add('spin');
+      setTimeout(()=> btn.classList.remove('spin'), 2000);
+      await refreshStatus(true); // forces /api/status?fresh=1
+    }catch(e){
+      console?.warn('Manual status refresh failed', e);
+    }finally{
+      setRefreshBusy(false);
+    }
+  }
   async function refreshStatus(force = false){
     const now = Date.now();
     if (!force && now - lastStatusMs < STATUS_MIN_INTERVAL) return;
@@ -1233,7 +1053,7 @@ function logHTML(t){ const el=document.getElementById('log'); el.innerHTML += t 
 
     window._ui.status = { can_run: !!r.can_run, plex_connected: !!r.plex_connected, simkl_connected: !!r.simkl_connected };
     recomputeRunDisabled();
-    
+
     const onMain = !document.getElementById('ops-card').classList.contains('hidden');
     const logPanel = document.getElementById('log-panel');
     const layout = document.getElementById('layout');
@@ -1241,155 +1061,192 @@ function logHTML(t){ const el=document.getElementById('log'); el.innerHTML += t 
     layout.classList.toggle('full', onMain && !appDebug);
   }
 
-
+  /* ====== Config & Settings ====== */
   async function loadConfig(){
-    const cfg = await fetch('/api/config').then(r=>r.json());
+    const cfg = await fetch('/api/config', {cache:'no-store'}).then(r=>r.json());
 
-    // --- SYNC / runtime ---
+    // Sync Options
     document.getElementById('mode').value   = cfg.sync?.bidirectional?.mode || 'two-way';
     document.getElementById('source').value = cfg.sync?.bidirectional?.source_of_truth || 'plex';
-    document.getElementById('debug').value  = String(cfg.runtime?.debug || false);
 
-    // --- PLEX ---
-    document.getElementById('plex_token').value = cfg.plex?.account_token || '';
+    // Troubleshoot / Runtime
+    document.getElementById('debug').value  = String(!!cfg.runtime?.debug);
 
-    // --- SIMKL (the missing bit) ---
-    document.getElementById('simkl_client_id').value     = cfg.simkl?.client_id || '';
-    document.getElementById('simkl_client_secret').value = cfg.simkl?.client_secret || '';
-    document.getElementById('simkl_access_token').value  = cfg.simkl?.access_token || '';
+    // Auth / Keys
+    document.getElementById('plex_token').value           = cfg.plex?.account_token || '';
+    document.getElementById('simkl_client_id').value      = cfg.simkl?.client_id || '';
+    document.getElementById('simkl_client_secret').value  = cfg.simkl?.client_secret || '';
+    document.getElementById('simkl_access_token').value   = cfg.simkl?.access_token || '';
+    document.getElementById('tmdb_api_key').value         = cfg.tmdb?.api_key || '';
 
-    // --- TMDb ---
-    document.getElementById('tmdb_api_key').value = cfg.tmdb?.api_key || '';
+    // Scheduling (pull from /api/config so the same source drives the UI)
+    const s = cfg.scheduling || {};
+    document.getElementById('schEnabled').value = String(!!s.enabled);
+    document.getElementById('schMode').value    = (typeof s.mode === 'string' && s.mode) ? s.mode : 'hourly';
+    document.getElementById('schN').value       = Number.isFinite(s.every_n_hours) ? String(s.every_n_hours) : '2';
+    document.getElementById('schTime').value    = (typeof s.daily_time === 'string' && s.daily_time) ? s.daily_time : '03:30';
+    // Optional timezone field if you add an <input id="schTz">
+    if (document.getElementById('schTz')) document.getElementById('schTz').value = s.timezone || '';
 
-    // refresh UI state after fields are filled
-    updateSimklButtonState?.();
-    updateSimklHint?.();
-    updateTmdbHint?.();
+    // keep your existing hints
+    updateSimklButtonState?.(); updateSimklHint?.(); updateTmdbHint?.();
   }
 
-  // SAVE SETTINGS
+  // Save settings back to server
   async function saveSettings(){
-    // 1) Read server config + deep clone
-    const serverCfg = await fetch('/api/config').then(r=>r.json()).catch(()=>({}));
-    const cfg = (typeof structuredClone === 'function')
-      ? structuredClone(serverCfg)
-      : JSON.parse(JSON.stringify(serverCfg || {}));
+    const toast = document.getElementById('save_msg');
+    const showToast = (text, ok=true) => {
+      if (!toast) return;
+      toast.classList.remove('hidden','ok','warn');
+      toast.classList.add(ok ? 'ok' : 'warn');
+      toast.textContent = text;
+      // keep it visible long enough to read
+      setTimeout(() => toast.classList.add('hidden'), 2000);
+    };
 
-    let changed = false;
-
-    // --- SYNC ---
-    const uiMode   = document.getElementById('mode').value;
-    const uiSource = document.getElementById('source').value;
-    const prevMode   = serverCfg?.sync?.bidirectional?.mode || 'two-way';
-    const prevSource = serverCfg?.sync?.bidirectional?.source_of_truth || 'plex';
-    if (uiMode !== prevMode) {
-      cfg.sync = cfg.sync || {}; cfg.sync.bidirectional = cfg.sync.bidirectional || {};
-      cfg.sync.bidirectional.mode = uiMode; changed = true;
-    }
-    if (uiSource !== prevSource) {
-      cfg.sync = cfg.sync || {}; cfg.sync.bidirectional = cfg.sync.bidirectional || {};
-      cfg.sync.bidirectional.source_of_truth = uiSource; changed = true;
-    }
-
-    // --- RUNTIME ---
-    const uiDebug  = (document.getElementById('debug').value === 'true');
-    const prevDebug = !!serverCfg?.runtime?.debug;
-    if (uiDebug !== prevDebug) {
-      cfg.runtime = cfg.runtime || {};
-      cfg.runtime.debug = uiDebug; changed = true;
-    }
-
-    // --- PLEX ---
-    const uiPlexToken = (document.getElementById('plex_token').value || '').trim();
-    const prevPlexTok = serverCfg?.plex?.account_token || '';
-    if (uiPlexToken && uiPlexToken !== prevPlexTok) {
-      cfg.plex = cfg.plex || {};
-      cfg.plex.account_token = uiPlexToken; changed = true;
-    }
-
-    // --- SIMKL ---
-    const uiCid = (document.getElementById('simkl_client_id').value || '').trim();
-    const uiSec = (document.getElementById('simkl_client_secret').value || '').trim();
-    const prevCid = serverCfg?.simkl?.client_id || '';
-    const prevSec = serverCfg?.simkl?.client_secret || '';
-    if (uiCid && uiCid !== prevCid) {
-      cfg.simkl = cfg.simkl || {};
-      cfg.simkl.client_id = uiCid; changed = true;
-    }
-    if (uiSec && uiSec !== prevSec) {
-      cfg.simkl = cfg.simkl || {};
-      cfg.simkl.client_secret = uiSec; changed = true;
-    }
-    // (access_token not modified here)
-
-    // --- TMDb ---
-    const uiTmdb = (document.getElementById('tmdb_api_key').value || '').trim();
-    const prevTmdb = serverCfg?.tmdb?.api_key || '';
-    if (uiTmdb && uiTmdb !== prevTmdb) {
-      cfg.tmdb = cfg.tmdb || {};
-      cfg.tmdb.api_key = uiTmdb; changed = true;
-    }
-
-    // 2) Save general config only if something changed
-    if (changed){
-      await fetch('/api/config', {
-        method:'POST',
-        headers:{'Content-Type':'application/json'},
-        body: JSON.stringify(cfg)
-      });
-    }
-
-    // 2b) Save Scheduling with the same Save button
     try {
-      const schPayload = {
-        enabled: document.getElementById('schEnabled').value === 'true',
-        mode: document.getElementById('schMode').value,
-        every_n_hours: parseInt(document.getElementById('schN').value || '2', 10),
-        daily_time: document.getElementById('schTime').value || '03:30'
-      };
-      await fetch('/api/scheduling', {
-        method:'POST',
-        headers:{'Content-Type':'application/json'},
-        body: JSON.stringify(schPayload)
-      });
-    } catch (e) {
-      console.warn('Failed to save scheduling', e);
+      // 1) Pull current server config and clone
+      const serverResp = await fetch('/api/config');
+      if (!serverResp.ok) throw new Error(`GET /api/config ${serverResp.status}`);
+      const serverCfg = await serverResp.json();
+      const cfg = (typeof structuredClone === 'function')
+        ? structuredClone(serverCfg)
+        : JSON.parse(JSON.stringify(serverCfg || {}));
+
+      let changed = false;
+
+      // --- SYNC ---
+      const uiMode   = document.getElementById('mode').value;
+      const uiSource = document.getElementById('source').value;
+      const prevMode   = serverCfg?.sync?.bidirectional?.mode || 'two-way';
+      const prevSource = serverCfg?.sync?.bidirectional?.source_of_truth || 'plex';
+      if (uiMode !== prevMode) {
+        cfg.sync = cfg.sync || {}; cfg.sync.bidirectional = cfg.sync.bidirectional || {};
+        cfg.sync.bidirectional.mode = uiMode; changed = true;
+      }
+      if (uiSource !== prevSource) {
+        cfg.sync = cfg.sync || {}; cfg.sync.bidirectional = cfg.sync.bidirectional || {};
+        cfg.sync.bidirectional.source_of_truth = uiSource; changed = true;
+      }
+
+      // --- RUNTIME ---
+      const uiDebug = (document.getElementById('debug').value === 'true');
+      const prevDebug = !!serverCfg?.runtime?.debug;
+      if (uiDebug !== prevDebug) {
+        cfg.runtime = cfg.runtime || {};
+        cfg.runtime.debug = uiDebug; changed = true;
+      }
+
+      // --- PLEX ---
+      const uiPlexToken = (document.getElementById('plex_token').value || '').trim();
+      const prevPlexTok = serverCfg?.plex?.account_token || '';
+      if (uiPlexToken && uiPlexToken !== prevPlexTok) {
+        cfg.plex = cfg.plex || {};
+        cfg.plex.account_token = uiPlexToken; changed = true;
+      }
+
+      // --- SIMKL ---
+      const uiCid = (document.getElementById('simkl_client_id').value || '').trim();
+      const uiSec = (document.getElementById('simkl_client_secret').value || '').trim();
+      const prevCid = serverCfg?.simkl?.client_id || '';
+      const prevSec = serverCfg?.simkl?.client_secret || '';
+      if (uiCid && uiCid !== prevCid) { cfg.simkl = cfg.simkl || {}; cfg.simkl.client_id = uiCid; changed = true; }
+      if (uiSec && uiSec !== prevSec) { cfg.simkl = cfg.simkl || {}; cfg.simkl.client_secret = uiSec; changed = true; }
+
+      // --- TMDb ---
+      const uiTmdb = (document.getElementById('tmdb_api_key').value || '').trim();
+      const prevTmdb = serverCfg?.tmdb?.api_key || '';
+      if (uiTmdb && uiTmdb !== prevTmdb) { cfg.tmdb = cfg.tmdb || {}; cfg.tmdb.api_key = uiTmdb; changed = true; }
+
+      // 2) Save updated config (only if changed)
+      if (changed) {
+        const postCfg = await fetch('/api/config', {
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body: JSON.stringify(cfg)
+        });
+        if (!postCfg.ok) throw new Error(`POST /api/config ${postCfg.status}`);
+      }
+
+      // 3) Save scheduling 
+      try {
+        const schPayload = {
+          enabled: document.getElementById('schEnabled').value === 'true',
+          mode: document.getElementById('schMode').value,
+          every_n_hours: parseInt(document.getElementById('schN').value || '2', 10),
+          daily_time: document.getElementById('schTime').value || '03:30',
+          timezone: (document.getElementById('schTz')?.value || '').trim() || undefined
+        };
+        const postSch = await fetch('/api/scheduling', {
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body: JSON.stringify(schPayload)
+        });
+        if (!postSch.ok) throw new Error(`POST /api/scheduling ${postSch.status}`);
+      } catch (e) {
+        console.warn('saveSettings: scheduling failed', e);
+      }
+
+
+      // 4) Refresh UI pieces
+      try { await refreshStatus(true); } catch {}
+      try { updateTmdbHint?.(); } catch {}
+      try { updateSimklState?.(); } catch {}
+      try { await updateWatchlistTabVisibility?.(); } catch {}
+      try { await loadScheduling?.(); } catch {}
+
+      // 5) Success toast
+      showToast('Settings saved ✓', true);
+
+    } catch (err) {
+      console.error('saveSettings failed', err);
+      showToast('Save failed — see console', false);
     }
-
-    // 3) UI refreshes (force a fresh status once; backend can memoize probes)
-    updateSimklButtonState?.();
-    updateSimklHint?.();
-    updateTmdbHint?.();
-    await refreshStatus(true);           // <-- force = true to avoid cached status
-    refreshSchedulingBanner?.();
-    await updateWatchlistTabVisibility?.();
-
-    // 4) Only manage the preview on Main
-    const onMain = !document.getElementById('ops-card').classList.contains('hidden');
-    if (onMain) {
-      await updatePreviewVisibility();
-    } else {
-      document.getElementById('placeholder-card')?.classList.add('hidden');
-    }
-
-    // 5) Save toast
-    const m = document.getElementById('save_msg');
-    m.classList.remove('hidden');
-    setTimeout(()=>m.classList.add('hidden'), 1600);
   }
-
 
   // ---- Scheduling UI ----
   async function loadScheduling(){
     try{
-      const s = await fetch('/api/scheduling').then(r=>r.json());
-      document.getElementById('schEnabled').value = String(!!s.enabled);
-      document.getElementById('schMode').value = s.mode || 'hourly';
-      document.getElementById('schN').value = (s.every_n_hours != null ? s.every_n_hours : 2);
-      document.getElementById('schTime').value = s.daily_time || '03:30';
-    }catch(_){}
+      const res = await fetch('/api/scheduling', { cache: 'no-store' });
+      const s = await res.json();
+
+      // Debug log so we can verify what the UI received
+      console.debug('[UI] /api/scheduling ->', s);
+
+      const en = document.getElementById('schEnabled');
+      const mo = document.getElementById('schMode');
+      const nh = document.getElementById('schN');
+      const ti = document.getElementById('schTime');
+
+      if (!en || !mo || !nh || !ti) {
+        console.warn('[UI] scheduling controls not found in DOM');
+        return;
+      }
+
+      // Map JSON -> controls (strings for <select> values)
+      const valEnabled = s && s.enabled === true ? 'true' : 'false';
+      const valMode    = (s && typeof s.mode === 'string' && s.mode) ? s.mode : 'hourly';
+      const valN       = (s && Number.isFinite(s.every_n_hours)) ? String(s.every_n_hours) : '2';
+      const valTime    = (s && typeof s.daily_time === 'string' && s.daily_time) ? s.daily_time : '03:30';
+
+      // Update controls
+      en.value = valEnabled;
+      mo.value = valMode;
+      nh.value = valN;
+      ti.value = valTime;
+
+      // nudge browser to update UI state
+      en.dispatchEvent(new Event('change'));
+      mo.dispatchEvent(new Event('change'));
+      nh.dispatchEvent(new Event('change'));
+      ti.dispatchEvent(new Event('change'));
+
+    } catch (e) {
+      console.warn('Failed to load scheduling config', e);
+    }
     refreshSchedulingBanner();
   }
+
 
   async function saveScheduling(){
     const payload = {
@@ -1404,7 +1261,6 @@ function logHTML(t){ const el=document.getElementById('log'); el.innerHTML += t 
     setTimeout(()=>m.classList.add('hidden'), 1500);
     refreshSchedulingBanner();
   }
-
   function refreshSchedulingBanner(){
     fetch('/api/scheduling/status')
       .then(r => r.json())
@@ -1425,7 +1281,8 @@ function logHTML(t){ const el=document.getElementById('log'); el.innerHTML += t 
         if (span){ span.textContent = ''; span.style.display = 'none'; }
       });
   }
-  // ---- Troubleshoot actions ---- 
+
+  /* Troubleshooting actions */
   async function clearState(){
     const btnText = "Clear State";
     try{
@@ -1447,46 +1304,26 @@ function logHTML(t){ const el=document.getElementById('log'); el.innerHTML += t 
     }catch(_){}
   }
 
-  // ---- Hints / Validation ----
-  // TMDb hint: local-first after user starts typing; server check only on first open.
-  // Runs only when the Settings page is visible.
-
+  /* TMDb hint logic (Settings page only) */
   async function updateTmdbHint(){
     const hint  = document.getElementById('tmdb_hint');
     const input = document.getElementById('tmdb_api_key');
     if (!hint || !input) return;
-
-    // Only when Settings is visible (prevents side-effects on Main)
     const settingsVisible = !document.getElementById('page-settings')?.classList.contains('hidden');
     if (!settingsVisible) return;
-
     const v = (input.value || '').trim();
-
-    // If the user is actively typing here, mark as dirty
     if (document.activeElement === input) input.dataset.dirty = '1';
-
-    // If user edited the field, trust local value only (no fetch = no flicker)
-    if (input.dataset.dirty === '1'){
-      hint.classList.toggle('hidden', !!v);
-      return;
-    }
-
-    // First open: if field has text, hide; otherwise peek server once
-    if (v){
-      hint.classList.add('hidden');
-      return;
-    }
+    if (input.dataset.dirty === '1'){ hint.classList.toggle('hidden', !!v); return; }
+    if (v){ hint.classList.add('hidden'); return; }
     try {
       const cfg = await fetch('/api/config', { cache: 'no-store' }).then(r => r.json());
       const has = !!((cfg.tmdb?.api_key || '').trim());
       hint.classList.toggle('hidden', has);
-    } catch {
-      hint.classList.remove('hidden'); // show hint if we can’t confirm
-    }
+    } catch { hint.classList.remove('hidden'); }
   }
 
-  
-  // PLEX
+  /* Plex auth (PIN flow) */
+  function setPlexSuccess(show){ document.getElementById('plex_msg').classList.toggle('hidden', !show); }
   async function requestPlexPin(){
     setPlexSuccess(false);
     const r = await fetch('/api/plex/pin/new', {method:'POST'}); const j = await r.json();
@@ -1507,8 +1344,10 @@ function logHTML(t){ const el=document.getElementById('log'); el.innerHTML += t 
     }, 1000);
   }
 
-  // SIMKL
-  async function updateSimklButtonState(){
+  /* SIMKL auth */
+  function setSimklSuccess(show){ document.getElementById('simkl_msg').classList.toggle('hidden', !show); }
+  function isPlaceholder(v, ph){ return (v||'').trim().toUpperCase() === ph.toUpperCase(); }
+  function updateSimklButtonState(){
     const cid = (document.getElementById('simkl_client_id').value || '').trim();
     const sec = (document.getElementById('simkl_client_secret').value || '').trim();
     const badCid = (!cid) || isPlaceholder(cid, 'YOUR_SIMKL_CLIENT_ID');
@@ -1517,7 +1356,7 @@ function logHTML(t){ const el=document.getElementById('log'); el.innerHTML += t 
     document.getElementById('redirect_uri_preview').textContent = computeRedirectURI();
     const ok = !(badCid || badSec); btn.disabled = !ok; hint.classList.toggle('hidden', ok);
   }
-
+  async function copyRedirect(){ try{ await navigator.clipboard.writeText(computeRedirectURI()); }catch(_){} }
   async function startSimkl(){
     setSimklSuccess(false); await saveSettings();
     const origin = window.location.origin;
@@ -1537,7 +1376,7 @@ function logHTML(t){ const el=document.getElementById('log'); el.innerHTML += t 
     }, 1000);
   }
 
-  // ---- Carousel helpers ----
+  /* ====== Poster carousel helpers ====== */
   function updateEdges(){
     const row = document.getElementById('poster-row');
     const L = document.getElementById('edgeL'), R = document.getElementById('edgeR');
@@ -1562,106 +1401,55 @@ function logHTML(t){ const el=document.getElementById('log'); el.innerHTML += t 
     updateEdges();
   }
 
-  function relTimeFromEpoch(epoch){
-    if(!epoch) return '';
-    const secs = Math.max(1, Math.floor(Date.now()/1000 - epoch));
-    const units = [["y",31536000],["mo",2592000],["d",86400],["h",3600],["m",60],["s",1]];
-    for(const [label,span] of units){
-      if(secs >= span) return Math.floor(secs/span) + label + " ago";
-    }
-    return "just now";
+  /* ====== Watchlist (grid) ====== */
+  function artUrl(item, size){
+    const typ  = (item.type === 'tv' || item.type === 'show') ? 'tv' : 'movie';
+    const tmdb = item.tmdb;
+    if(!tmdb) return null;
+    const cb = window._lastSyncEpoch || 0;
+    return `/art/tmdb/${typ}/${tmdb}?size=${encodeURIComponent(size || 'w342')}&cb=${cb}`;
   }
 
-  // Poster wall (build)
   async function loadWall() {
     const card = document.getElementById('placeholder-card');
     const msg = document.getElementById('wall-msg');
     const row = document.getElementById('poster-row');
-    msg.textContent = 'Loading…'; 
-    row.innerHTML = ''; 
-    row.classList.add('hidden'); 
-    card.classList.remove('hidden');
+    msg.textContent = 'Loading…'; row.innerHTML = ''; row.classList.add('hidden'); card.classList.remove('hidden');
 
-    // Read client-side hidden set (successfully deleted keys)
-    const hidden = new Set((()=>{
-      try { return JSON.parse(localStorage.getItem('wl_hidden') || '[]'); }
-      catch { return []; }
-    })());
-
-    // Add to hidden keys when deleting an item
+    const hidden = new Set((()=>{ try { return JSON.parse(localStorage.getItem('wl_hidden') || '[]'); } catch { return []; } })());
     const isDeleted = (k) => hidden.has(k) || (window._deletedKeys && window._deletedKeys.has(k));
 
     try {
       const data = await fetch('/api/state/wall').then(r => r.json());
-      if (data.missing_tmdb_key) {
-        card.classList.add('hidden');
-        return;
-      }
-      if (!data.ok) {
-        msg.textContent = data.error || 'No state data found.';
-        return;
-      }
+      if (data.missing_tmdb_key) { card.classList.add('hidden'); return; }
+      if (!data.ok) { msg.textContent = data.error || 'No state data found.'; return; }
       const items = data.items || [];
       _lastSyncEpoch = data.last_sync_epoch || null;
-      if (items.length === 0) {
-        msg.textContent = 'No items to show yet.';
-        return;
-      }
-      msg.classList.add('hidden');
-      row.classList.remove('hidden');
+      if (items.length === 0) { msg.textContent = 'No items to show yet.'; return; }
+      msg.classList.add('hidden'); row.classList.remove('hidden');
 
-      // Loop through each item and check its status
       for (const it of items) {
         if (!it.tmdb) continue;
-
         const a = document.createElement('a');
         a.className = 'poster';
-        a.href = `https://www.themoviedb.org/${it.type}/${it.tmdb}`; 
-        a.target = '_blank'; 
-        a.rel = 'noopener';
-        a.dataset.type = it.type; 
-        a.dataset.tmdb = String(it.tmdb); 
-        a.dataset.key = it.key || '';
-
-        // Decide UI status (override to 'deleted' if key is hidden)
-        const uiStatus = isDeleted(it.key) ? 'deleted' : it.status;
-        a.dataset.source = uiStatus;
+        a.href = `https://www.themoviedb.org/${it.type}/${it.tmdb}`; a.target = '_blank'; a.rel = 'noopener';
+        a.dataset.type = it.type; a.dataset.tmdb = String(it.tmdb); a.dataset.key = it.key || '';
+        const uiStatus = isDeleted(it.key) ? 'deleted' : it.status; a.dataset.source = uiStatus;
 
         const img = document.createElement('img');
-        img.loading = 'lazy'; 
-        img.alt = `${it.title || ''} (${it.year || ''})`;
-        img.src = artUrl(it, 'w342');
-        a.appendChild(img);
+        img.loading = 'lazy'; img.alt = `${it.title || ''} (${it.year || ''})`; img.src = artUrl(it, 'w342'); a.appendChild(img);
 
-        const ovr = document.createElement('div'); 
-        ovr.className = 'ovr';
+        const ovr = document.createElement('div'); ovr.className = 'ovr';
         let pillText, pillClass;
-        if (uiStatus === 'deleted') {
-          pillText = 'DELETED'; 
-          pillClass = 'p-del'; // requires .pill.p-del CSS
-        } else if (uiStatus === 'both') {
-          pillText = 'SYNCED';  
-          pillClass = 'p-syn';
-        } else if (uiStatus === 'plex_only') {
-          pillText = 'PLEX';    
-          pillClass = 'p-px';
-        } else {
-          pillText = 'SIMKL';   
-          pillClass = 'p-sk';
-        }
-        const pill = document.createElement('div');
-        pill.className = 'pill ' + pillClass;
-        pill.textContent = pillText;
-        ovr.appendChild(pill); 
-        a.appendChild(ovr);
+        if (uiStatus === 'deleted')      { pillText = 'DELETED';  pillClass = 'p-del'; }
+        else if (uiStatus === 'both')    { pillText = 'SYNCED';   pillClass = 'p-syn'; }
+        else if (uiStatus === 'plex_only'){ pillText = 'PLEX';     pillClass = 'p-px'; }
+        else                              { pillText = 'SIMKL';    pillClass = 'p-sk'; }
+        const pill = document.createElement('div'); pill.className = 'pill ' + pillClass; pill.textContent = pillText; ovr.appendChild(pill); a.appendChild(ovr);
 
-        const cap = document.createElement('div'); 
-        cap.className = 'cap';
-        cap.textContent = `${it.title || ''} ${it.year ? '· ' + it.year : ''}`;
-        a.appendChild(cap);
+        const cap = document.createElement('div'); cap.className = 'cap'; cap.textContent = `${it.title || ''} ${it.year ? '· ' + it.year : ''}`; a.appendChild(cap);
 
-        const hover = document.createElement('div'); 
-        hover.className = 'hover';
+        const hover = document.createElement('div'); hover.className = 'hover';
         hover.innerHTML = `
           <div class="titleline">${it.title || ''}</div>
           <div class="meta">
@@ -1680,152 +1468,73 @@ function logHTML(t){ const el=document.getElementById('log'); el.innerHTML += t 
             const meta = await fetch(`/api/tmdb/meta/${it.type}/${it.tmdb}?cb=${cb}`).then(r => r.json());
             descEl.textContent = meta?.overview || '—';
             descEl.dataset.loaded = '1';
-          } catch {
-            descEl.textContent = '—';
-            descEl.dataset.loaded = '1';
-          }
+          } catch { descEl.textContent = '—'; descEl.dataset.loaded = '1'; }
         }, { passive: true });
 
         row.appendChild(a);
       }
       initWallInteractions();
-    } catch {
-      msg.textContent = 'Failed to load preview.';
-    }
-  }
-
-  // ---- Watchlist helpers ----
-  function artUrl(item, size){
-    const typ  = (item.type === 'tv' || item.type === 'show') ? 'tv' : 'movie';
-    const tmdb = item.tmdb;
-    if(!tmdb) return null;
-    const cb = window._lastSyncEpoch || 0;          // changes after each sync
-    return `/art/tmdb/${typ}/${tmdb}?size=${encodeURIComponent(size || 'w342')}&cb=${cb}`;
-  }
-
-  function relTimeFromEpoch(epoch){
-    if(!epoch) return '';
-    const secs = Math.max(1, Math.floor(Date.now()/1000 - epoch));
-    const units = [["y",31536000],["mo",2592000],["d",86400],["h",3600],["m",60],["s",1]];
-    for(const [label,span] of units){ if(secs >= span) return Math.floor(secs/span) + label + " ago"; }
-    return "just now";
+    } catch { msg.textContent = 'Failed to load preview.'; }
   }
 
   async function loadWatchlist() {
-      const grid = document.getElementById('wl-grid');
-      const msg = document.getElementById('wl-msg');
+    const grid = document.getElementById('wl-grid');
+    const msg = document.getElementById('wl-msg');
+    grid.innerHTML = ''; grid.classList.add('hidden'); msg.textContent = 'Loading…'; msg.classList.remove('hidden');
+    try {
+      const data = await fetch('/api/watchlist').then(r => r.json());
+      if (data.missing_tmdb_key) { msg.textContent = 'Set a TMDb API key to see posters.'; return; }
+      if (!data.ok) { msg.textContent = data.error || 'No state data found.'; return; }
+      const items = data.items || [];
+      if (items.length === 0) { msg.textContent = 'No items on your watchlist yet.'; return; }
+      msg.classList.add('hidden'); grid.classList.remove('hidden');
+      for (const it of items) {
+        if (!it.tmdb) continue;
+        const node = document.createElement('div');
+        node.className = 'wl-poster poster';
+        node.dataset.key = it.key;
+        node.dataset.type = it.type === 'tv' || it.type === 'show' ? 'tv' : 'movie';
+        node.dataset.tmdb = String(it.tmdb || '');
+        node.dataset.status = it.status;
+        const pillText = it.status === 'both' ? 'SYNCED' : (it.status === 'plex_only' ? 'PLEX' : 'SIMKL');
+        const pillClass = it.status === 'both' ? 'p-syn' : (it.status === 'plex_only' ? 'p-px' : 'p-sk');
 
-      // Reset grid and show loading message
-      grid.innerHTML = ''; 
-      grid.classList.add('hidden'); 
-      msg.textContent = 'Loading…'; 
-      msg.classList.remove('hidden');
+        node.innerHTML = `
+          <img alt="" src="${artUrl(it, 'w342') || ''}" onerror="this.style.display='none'">
+          <div class="wl-del pill p-del" role="button" tabindex="0" title="Delete from Plex" onclick="deletePoster(event, '${encodeURIComponent(it.key)}', this)">Delete</div>
+          <div class="wl-ovr ovr"><span class="pill ${pillClass}">${pillText}</span></div>
+          <div class="wl-cap cap">${(it.title || '').replace(/"/g, '&quot;')} ${it.year ? '· ' + it.year : ''}</div>
+          <div class="wl-hover hover">
+            <div class="titleline">${(it.title || '')}</div>
+            <div class="meta">
+              <div class="chip src">${it.status === 'both' ? 'Source: Synced' : (it.status === 'plex_only' ? 'Source: Plex' : 'Source: SIMKL')}</div>
+              <div class="chip time">${relTimeFromEpoch(it.added_epoch)}</div>
+            </div>
+            <div class="desc" id="wldesc-${node.dataset.type}-${node.dataset.tmdb}">${it.tmdb ? 'Fetching description…' : '—'}</div>
+          </div>`;
 
-      try {
-          // Fetch the watchlist data from the API
-          const data = await fetch('/api/watchlist').then(r => r.json());
+        const hidden = new Set(JSON.parse(localStorage.getItem('wl_hidden') || '[]'));
+        if (hidden.has(it.key)) {
+          const pill = node.querySelector('.pill'); pill.textContent = 'DELETED'; pill.classList.add('p-del');
+        }
 
-          // Debugging: Log fetched data
-          console.log("Fetched Watchlist Data:", data);
+        node.addEventListener('mouseenter', async () => {
+          const descEl = document.getElementById(`wldesc-${it.type}-${it.tmdb}`);
+          if (!descEl || descEl.dataset.loaded) return;
+          try {
+            const cb = window._lastSyncEpoch || Date.now();
+            const meta = await fetch(`/api/tmdb/meta/${it.type}/${it.tmdb}?cb=${cb}`).then(r => r.json());
+            descEl.textContent = meta?.overview || '—';
+            descEl.dataset.loaded = '1';
+          } catch { descEl.textContent = '—'; descEl.dataset.loaded = '1'; }
+        }, { passive: true });
 
-          if (data.missing_tmdb_key) {
-              msg.textContent = 'Set a TMDb API key to see posters.';
-              return;
-          }
-
-          if (!data.ok) {
-              msg.textContent = data.error || 'No state data found.';
-              return;
-          }
-
-          const items = data.items || [];
-          if (items.length === 0) {
-              msg.textContent = 'No items on your watchlist yet.';
-              return;
-          }
-
-          // Hide loading message and show grid
-          msg.classList.add('hidden'); 
-          grid.classList.remove('hidden');
-
-          // Loop through each item and create the DOM elements
-          for (const it of items) {
-              console.log("Item:", it);  // Log each item for verification
-
-              if (!it.tmdb) continue;
-
-              // Create poster container
-              const node = document.createElement('div');
-              node.className = 'wl-poster poster';
-              node.dataset.key = it.key;
-              node.dataset.type = it.type === 'tv' || it.type === 'show' ? 'tv' : 'movie';
-              node.dataset.tmdb = String(it.tmdb || '');
-              node.dataset.status = it.status;
-
-              // Check if the item is marked as deleted
-              const isDeleted = (key) => {
-                  const hidden = new Set(JSON.parse(localStorage.getItem('wl_hidden') || '[]'));
-                  return hidden.has(key);
-              };
-
-              // Set the pill text based on the item status
-              const pillText = it.status === 'both' ? 'SYNCED' : (it.status === 'plex_only' ? 'PLEX' : 'SIMKL');
-              const pillClass = it.status === 'both' ? 'p-syn' : (it.status === 'plex_only' ? 'p-px' : 'p-sk');
-
-              // Build the inner HTML for the poster
-              node.innerHTML = `
-                  <img alt="" src="${artUrl(it, 'w342') || ''}" onerror="this.style.display='none'">
-                  <div class="wl-del pill p-del" role="button" tabindex="0"
-                      title="Delete from Plex"
-                      onclick="deletePoster(event, '${encodeURIComponent(it.key)}', this)">
-                      Delete
-                  </div>
-
-                  <div class="wl-ovr ovr">
-                      <span class="pill ${pillClass}">${pillText}</span>
-                  </div>
-
-                  <div class="wl-cap cap">${(it.title || '').replace(/"/g, '&quot;')} ${it.year ? '· ' + it.year : ''}</div>
-
-                  <div class="wl-hover hover">
-                      <div class="titleline">${(it.title || '')}</div>
-                      <div class="meta">
-                          <div class="chip src">${it.status === 'both' ? 'Source: Synced' : (it.status === 'plex_only' ? 'Source: Plex' : 'Source: SIMKL')}</div>
-                          <div class="chip time">${relTimeFromEpoch(it.added_epoch)}</div>
-                      </div>
-                      <div class="desc" id="wldesc-${node.dataset.type}-${node.dataset.tmdb}">${it.tmdb ? 'Fetching description…' : '—'}</div>
-                  </div>
-              `;
-
-              // If the item is deleted, update the pill to show 'DELETED'
-              if (isDeleted(it.key)) {
-                  const pill = node.querySelector('.pill');
-                  pill.textContent = 'DELETED';  // Change pill to 'DELETED'
-                  pill.classList.add('p-del');   // Apply 'DELETED' styling
-              }
-
-              // Description lazy loading for hover
-              node.addEventListener('mouseenter', async () => {
-                  const descEl = document.getElementById(`wldesc-${it.type}-${it.tmdb}`);
-                  if (!descEl || descEl.dataset.loaded) return;
-                  try {
-                      const cb = window._lastSyncEpoch || Date.now();
-                      const meta = await fetch(`/api/tmdb/meta/${it.type}/${it.tmdb}?cb=${cb}`).then(r => r.json());
-                      descEl.textContent = meta?.overview || '—';
-                      descEl.dataset.loaded = '1';
-                  } catch {
-                      descEl.textContent = '—';
-                      descEl.dataset.loaded = '1';
-                  }
-              }, { passive: true });
-
-              // Append the item to the grid
-              grid.appendChild(node);
-          }
-      } catch (error) {
-          console.error('Error loading watchlist:', error);
-          msg.textContent = 'Failed to load preview.';
+        grid.appendChild(node);
       }
+    } catch (error) {
+      console.error('Error loading watchlist:', error);
+      msg.textContent = 'Failed to load preview.';
+    }
   }
 
   async function deletePoster(ev, encKey, btnEl) {
@@ -1833,88 +1542,57 @@ function logHTML(t){ const el=document.getElementById('log'); el.innerHTML += t 
     const key = decodeURIComponent(encKey);
     const card = btnEl.closest('.wl-poster');
     btnEl.disabled = true;
-
     try {
       const res = await fetch('/api/watchlist/' + encodeURIComponent(key), { method: 'DELETE' });
-
       if (res.ok) {
         card.classList.add('wl-removing');
         setTimeout(() => { card.remove(); }, 350);
-
-        // Update the localStorage to reflect deleted status
         const hidden = new Set(JSON.parse(localStorage.getItem('wl_hidden') || '[]'));
-        hidden.add(key);  // Add deleted item key to hidden
+        hidden.add(key);
         localStorage.setItem('wl_hidden', JSON.stringify([...hidden]));
-
-        // Notify other browsers of the change by triggering the 'storage' event
-        window.dispatchEvent(new Event('storage'));  // This will trigger the storage event in other browsers
+        window.dispatchEvent(new Event('storage'));
         return;
       }
-
-      btnEl.disabled = false;
-      btnEl.textContent = 'Failed';
-      setTimeout(() => { btnEl.textContent = 'Delete'; }, 1200);
+      btnEl.disabled = false; btnEl.textContent = 'Failed'; setTimeout(() => { btnEl.textContent = 'Delete'; }, 1200);
     } catch (e) {
       console.warn('deletePoster error', e);
-      btnEl.disabled = false;
-      btnEl.textContent = 'Error';
-      setTimeout(() => { btnEl.textContent = 'Delete'; }, 1200);
+      btnEl.disabled = false; btnEl.textContent = 'Error'; setTimeout(() => { btnEl.textContent = 'Delete'; }, 1200);
     }
   }
 
+  /* ====== Watchlist preview visibility ====== */
+  async function updateWatchlistPreview(){ await loadWatchlist(); }
   async function updateWatchlistTabVisibility(){
-  try {
-    const cfg = await fetch('/api/config').then(r=>r.json());
-    const tmdbKey = (cfg.tmdb?.api_key || '').trim();
-     // CENODUDE WATCHLIST DISABLE document.getElementById('tab-watchlist').style.display = tmdbKey ? 'block' : 'none';
-     document.getElementById('tab-watchlist').style.display = 'none';
-  } catch(e){
-    // bij error: tab verbergen
-    document.getElementById('tab-watchlist').style.display = 'none';
+    try {
+      const cfg = await fetch('/api/config').then(r=>r.json());
+      const tmdbKey = (cfg.tmdb?.api_key || '').trim();
+      document.getElementById('tab-watchlist').style.display = tmdbKey ? 'block' : 'none';
+    } catch(e){ document.getElementById('tab-watchlist').style.display = 'none'; }
   }
-}
-async function hasTmdbKey(){
-  try{
-    const cfg = await fetch('/api/config').then(r=>r.json());
-    return !!(cfg.tmdb?.api_key || '').trim();
-  }catch(_){ return false; }
-}
-
-
-function isOnMain(){
-  return !document.getElementById('ops-card').classList.contains('hidden');
-}
-
-async function updatePreviewVisibility(){
-  const card = document.getElementById('placeholder-card');
-  const row  = document.getElementById('poster-row');
-
-  if (!isOnMain()) {
-    card.classList.add('hidden');
-    return false;
+  async function hasTmdbKey(){
+    try{ const cfg = await fetch('/api/config').then(r=>r.json()); return !!(cfg.tmdb?.api_key || '').trim(); }catch(_){ return false; }
   }
-
-  const show = await hasTmdbKey();
-
-  if(!show){
-    card.classList.add('hidden');
-    if(row){ row.innerHTML = ''; row.classList.add('hidden'); }
-    window.wallLoaded = false;
-    return false;
-  } else {
-    card.classList.remove('hidden');
-    // Alleen laden als we 'm nog niet hebben
-    if(!window.wallLoaded){
-      await loadWall();
-      window.wallLoaded = true;
+  function isOnMain(){ return !document.getElementById('ops-card').classList.contains('hidden'); }
+  async function updatePreviewVisibility(){
+    const card = document.getElementById('placeholder-card');
+    const row  = document.getElementById('poster-row');
+    if (!isOnMain()) { card.classList.add('hidden'); return false; }
+    const show = await hasTmdbKey();
+    if(!show){
+      card.classList.add('hidden');
+      if(row){ row.innerHTML = ''; row.classList.add('hidden'); }
+      window.wallLoaded = false; return false;
+    } else {
+      card.classList.remove('hidden');
+      if(!window.wallLoaded){ await loadWall(); window.wallLoaded = true; }
+      return true;
     }
-    return true;
   }
-}
 
-  // Boot
+  /* ====== Boot ====== */
   showTab('main');
   updateWatchlistTabVisibility();
+  window.addEventListener('storage', (event) => { if (event.key === 'wl_hidden') { loadWatchlist(); } });
 </script>
 </body></html>
 """

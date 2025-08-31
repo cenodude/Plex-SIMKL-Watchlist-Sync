@@ -1423,9 +1423,7 @@ function logHTML(t){ const el=document.getElementById('log'); el.innerHTML += t 
         if (span){ span.textContent = ''; span.style.display = 'none'; }
       });
   }
-
-
-  // ---- Troubleshoot actions ----
+  // ---- Troubleshoot actions ---- 
   async function clearState(){
     const btnText = "Clear State";
     try{

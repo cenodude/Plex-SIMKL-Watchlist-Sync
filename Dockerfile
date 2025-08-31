@@ -19,7 +19,7 @@ COPY plex_token_helper.py /app/
 COPY webapp.py /app/
 COPY _auth_helper.py /app/
 COPY _FastAPI.py /app/
-COPY _secheduling.py /app/
+COPY _scheduling.py /app/
 COPY _TMDB.py /app/
 COPY _watchlist.py /app/
 

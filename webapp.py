@@ -182,6 +182,8 @@ CACHE_DIR = CONFIG_BASE / "cache"
 CACHE_DIR.mkdir(parents=True, exist_ok=True)
 STATE_PATHS = [CONFIG_BASE / "state.json", ROOT / "state.json"]
 
+HIDE_PATH   = CONFIG_BASE / "watchlist_hide.json"
+
 # ---------- Globals ----------
 SYNC_PROC_LOCK = threading.Lock()
 RUNNING_PROCS: Dict[str, subprocess.Popen] = {}
@@ -371,6 +373,10 @@ def _stream_proc(cmd: List[str], tag: str) -> None:
             _append_log(tag, line)
             if tag == "SYNC": _parse_sync_line(line)
         rc = proc.wait(); _append_log(tag, f"[{tag}] exit code: {rc}")
+
+        if tag == "SYNC" and rc == 0:
+            _clear_watchlist_hide()
+
         if tag == "SYNC" and _summary_snapshot().get("exit_code") is None:
             _summary_set("exit_code", rc)
             started = _summary_snapshot().get("raw_started_ts")
@@ -412,6 +418,22 @@ def get_primary_ip() -> str:
         return "127.0.0.1"
     finally:
         s.close()
+
+# ---------- watchlist_hide.json helpers ----------
+def _clear_watchlist_hide() -> None:
+    """After sync, clear watchlist_hide.json if it exists (atomic)."""
+    try:
+        p = HIDE_PATH
+        if not p.exists():
+            return
+        tmp = p.with_suffix(p.suffix + ".tmp")
+        with tmp.open("w", encoding="utf-8") as f:
+            json.dump([], f)  # empty list
+        tmp.replace(p)
+        _append_log("SYNC", "[SYNC] watchlist_hide.json cleared")
+    except Exception as e:
+        _append_log("SYNC", f"[SYNC] failed to clear watchlist_hide.json: {e}")
+
 
 # ---------- state.json helpers ----------
 def _find_state_path() -> Optional[Path]:

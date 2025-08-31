@@ -58,8 +58,13 @@ def get_index_html() -> str:
   /* Versioning pill */
   .hidden{ display:none }
 
-  /* Sticky right meta card */
-  .det-right{ position: sticky; top: 8px; align-self: start; }
+  /* Sticky right meta card — push it down a bit */
+  .det-right{
+    position: sticky;
+    top: 100px;
+    align-self: start;
+    margin-top: 8px;  /* extra initial offset in normal flow */
+  }
 
   .meta-card{
     background: #0a0a17;
@@ -531,11 +536,25 @@ def get_index_html() -> str:
     .badge.upd::after { animation: none !important; transition: none !important; }
   }
 
+  /* Push the right meta card down in the details grid */
+  .details-grid > .det-right { 
+    top: 28px !important;   /* increase sticky offset */
+  }
+
+  /* Extra spacing inside the right column (optional) */
+  .details-grid > .det-right .meta-card {
+    margin-top: 12px;       /* bump the whole card downward */
+  }
+
+  /* Hide the bottom title on the WATCHLIST PREVIEW (carousel) only */
+  #placeholder-card .cap { display: none !important; }
+
+  /* Hide titles in the WATCHLIST GRID page as well */
+  #page-watchlist .wl-cap { display: none !important; }
 
 </style>
 </head><body>
 <header>
-  <span id="app-version" class="subtle"></span>
   <div class="brand">
     <svg class="logo" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-label="Plex ⇄ SIMKL Watchlist Sync">
       <defs><linearGradient id="cw-g" x1="0" y1="0" x2="24" y2="24" gradientUnits="userSpaceOnUse">
@@ -600,7 +619,7 @@ def get_index_html() -> str:
         <button id="run" class="btn acc" onclick="runSync()"><span class="label">Synchronize</span><span class="spinner" aria-hidden="true"></span></button>
         <button class="btn" onclick="toggleDetails()">View details</button>
         <button class="btn" onclick="copySummary(this)">Copy summary</button>
-        <button class="btn" onclick="downloadSummary()">Download report (JSON)</button>
+        <button class="btn" onclick="downloadSummary()">Download report</button>
       </div>
       <div class="stepper" aria-label="Sync progress">
         <div class="step"><div class="tl-dot" id="tl-start"></div><div class="muted">Start</div></div>

@@ -57,7 +57,7 @@ ROOT = Path(__file__).resolve().parent
 app = FastAPI()
 
 # --- Versioning ---
-CURRENT_VERSION = os.getenv("APP_VERSION", "v0.4.3")  # keep in sync with release tag
+CURRENT_VERSION = os.getenv("APP_VERSION", "v0.4.4")  # keep in sync with release tag
 REPO = os.getenv("GITHUB_REPO", "cenodude/plex-simkl-watchlist-sync")
 GITHUB_API = f"https://api.github.com/repos/{REPO}/releases/latest"
 
@@ -119,7 +119,7 @@ def _is_update_available(current: str, latest: str) -> bool:
     except InvalidVersion:
         return latest != current
 
-@router.get("/api/version")
+@app.get("/api/version")
 def get_version():
     cur = _norm(CURRENT_VERSION)
     cache = _cached_latest_release(_ttl_marker(300))

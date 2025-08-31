@@ -427,6 +427,111 @@ def get_index_html() -> str:
   .hidden { display: none !important; }
   #update-banner { display: flex; gap: 0.25em; }
 
+  /* Align far right inside a flex row (.chiprow must be display:flex) */
+  #st-update { margin-left: auto; }
+
+  /* Fancy attention without layout shifts */
+  .badge.upd{
+    position: relative;
+    overflow: hidden;
+    isolation: isolate;
+    background: rgba(206,117,0,0.18);
+    border: 1px solid rgba(206,117,0,0.45);
+    color: #fff;
+    font-weight: 700;
+    /* size comes from your .badge */
+    will-change: transform, box-shadow;
+    transition: background .3s ease, border-color .3s ease, transform .2s ease, box-shadow .2s ease;
+    animation: updPulse 2.4s ease-in-out infinite;
+  }
+
+  /* soft outer halo */
+  .badge.upd::before{
+    content: "";
+    position: absolute;
+    inset: -2px;
+    border-radius: inherit;
+    box-shadow: 0 0 0 0 rgba(206,117,0,0.0);
+    animation: updHalo 2.4s ease-in-out infinite;
+    z-index: -1;
+    pointer-events: none;
+  }
+
+  /* FULL-WIDTH shimmer sweep (Fix B: animate 'left') */
+  .badge.upd::after{
+    content: "";
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: -40%;          /* start off the left edge */
+    width: 40%;          /* stripe width */
+    border-radius: inherit;
+    background: linear-gradient(
+      120deg,
+      transparent 0%,
+      rgba(255,255,255,.16) 35%,
+      rgba(255,255,255,.18) 50%,
+      transparent 65%
+    );
+    transform: skewX(-12deg);     /* keep diagonal look */
+    animation: updShimmer 5.5s ease-in-out infinite;
+    will-change: left;
+    pointer-events: none;
+  }
+
+  /* Shimmer travels fully from left to right */
+  @keyframes updShimmer{
+    0%, 35%   { left: -40%; }
+    55%, 100% { left: 100%; }
+  }
+
+  .badge.upd:hover{
+    background: rgba(206,117,0,0.26);
+    border-color: rgba(206,117,0,0.55);
+    transform: translateY(-1px);
+    box-shadow: 0 6px 18px rgba(206,117,0,.18);
+  }
+
+  /* one-time pop when it appears */
+  .badge.upd.reveal{
+    animation: updPop 650ms cubic-bezier(.2,.9,.2,1) 1, updPulse 2.4s ease-in-out 0s infinite;
+  }
+
+  /* link stays bold white */
+  .badge.upd a{
+    color: inherit;
+    font-weight: 700;
+    text-decoration: none;
+  }
+  .badge.upd a:hover{
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+
+  /* animations */
+  @keyframes updPulse{
+    0%,100% { box-shadow: 0 0 0 rgba(206,117,0,0); }
+    50%     { box-shadow: 0 0 16px rgba(206,117,0,.25); }
+  }
+  @keyframes updHalo{
+    0%   { box-shadow: 0 0 0 0 rgba(206,117,0,0.0); }
+    50%  { box-shadow: 0 0 0 6px rgba(206,117,0,0.18); }
+    100% { box-shadow: 0 0 0 0 rgba(206,117,0,0.0); }
+  }
+  @keyframes updPop{
+    0%   { transform: scale(.92); filter: saturate(.9) brightness(.95); }
+    60%  { transform: scale(1.06); }
+    100% { transform: scale(1); filter: none; }
+  }
+
+  /* reduced motion */
+  @media (prefers-reduced-motion: reduce){
+    .badge.upd,
+    .badge.upd::before,
+    .badge.upd::after { animation: none !important; transition: none !important; }
+  }
+
+
 </style>
 </head><body>
 <header>
@@ -486,6 +591,7 @@ def get_index_html() -> str:
       <div class="chip">SIMKL: <span id="chip-simkl">–</span></div>
       <div class="chip">Duration: <span id="chip-dur">–</span></div>
       <div class="chip">Exit: <span id="chip-exit">–</span></div>
+      <span id="st-update" class="badge upd hidden"></span>
     </div>
 
     <div class="sep"></div>
@@ -862,59 +968,68 @@ def get_index_html() -> str:
     closeUpdateModal();
   }
 
-  async function checkForUpdate() {
-    try {
-      const r = await fetch('/api/version', { cache: 'no-store' });
-      if (!r.ok) throw new Error('HTTP ' + r.status);
-      const j = await r.json();
+async function checkForUpdate() {
+  try {
+    const r = await fetch('/api/version', { cache: 'no-store' });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const j = await r.json();
 
-      const cur = j.current || '0.0.0';
-      const latest = j.latest || null;
-      const url = j.html_url || 'https://github.com/cenodude/plex-simkl-watchlist-sync/releases';
-      const hasUpdate = !!j.update_available;
+    const cur     = j.current || '0.0.0';
+    const latest  = j.latest  || null;
+    const url     = j.html_url || 'https://github.com/cenodude/plex-simkl-watchlist-sync/releases';
+    const hasUpdate = !!j.update_available;
 
-      // Show current version somewhere
-      const vEl = document.getElementById('app-version');
-      if (vEl) vEl.textContent = `Version ${cur}`;
+    // Update the "Version x.y.z" label (if present)
+    const vEl = document.getElementById('app-version');
+    if (vEl) vEl.textContent = `Version ${cur}`;
 
-      const banner = document.getElementById('update-banner');
-      const link = document.getElementById('update-link');
-      const text = document.getElementById('update-text');
+    // Update badge (right side)
+    const updEl = document.getElementById('st-update');
+    if (!updEl) return;
 
-      if (hasUpdate && banner && link) {
-        link.href = url;
-        // nice readable text
-        if (text && latest) {
-          text.textContent = `Update ${latest} is available (you have ${cur}).`;
-        }
-        banner.classList.remove('hidden');
-        banner.style.display = 'flex';
-      } else if (banner) {
-        banner.classList.add('hidden');
-        banner.style.display = 'none';
+    // Make sure it has the badge classes (harmless if already present)
+    updEl.classList.add('badge','upd');
+
+    if (hasUpdate && latest) {
+      // Only re-animate if the version changed since last check
+      const prev = updEl.dataset.lastLatest || '';
+      const changed = (latest !== prev);
+
+      updEl.innerHTML = `<a href="${url}" target="_blank" rel="noopener" title="Open release page">
+                           Update ${latest} available
+                         </a>`;
+      updEl.setAttribute('aria-label', `Update ${latest} available`);
+      updEl.classList.remove('hidden');
+
+      if (changed) {
+        // store for next time
+        updEl.dataset.lastLatest = latest;
+        // retrigger the one-time "reveal" animation
+        updEl.classList.remove('reveal'); // reset
+        void updEl.offsetWidth;           // reflow to restart CSS animation
+        updEl.classList.add('reveal');    // CSS handles pop + pulse
       }
-    } catch (err) {
-      // silently ignore; we don't want to block the UI
-      console.debug('Version check failed:', err);
+    } else {
+      // No update -> hide and clear state
+      updEl.classList.add('hidden');
+      updEl.classList.remove('reveal');
+      updEl.removeAttribute('aria-label');
+      updEl.removeAttribute('data-last-latest');
+      updEl.textContent = '';
     }
+  } catch (err) {
+    console.debug('Version check failed:', err);
   }
+}
 
-  // (+) Make sure this runs once after DOM is ready
-  document.addEventListener('DOMContentLoaded', () => {
-    checkForUpdate();
-
-    // Defensive: ensure clicking on the banner link always opens in a new tab
-    const link = document.getElementById('update-link');
-    if (link) {
-      link.addEventListener('click', (e) => {
-        // If href is valid, let the browser handle it (target=_blank already set)
-        if (!link.href || link.getAttribute('href') === '#') {
-          e.preventDefault();
-        }
-      });
-    }
-  });
-
+// Run once after DOM is ready
+document.addEventListener('DOMContentLoaded', () => {
+  checkForUpdate();
+  // Optional: re-check when the tab becomes visible again
+  // document.addEventListener('visibilitychange', () => {
+  //   if (!document.hidden) checkForUpdate();
+  // });
+});
 
   // tiny toast you already have styling for messages; here's a quick helper
   function showToast(text, onClick){

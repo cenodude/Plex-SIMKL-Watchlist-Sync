@@ -24,6 +24,9 @@ COPY _TMDB.py /app/
 COPY _watchlist.py /app/
 COPY _statistics.py /app/
 
+# Copy assets folder
+COPY assets/ /app/assets/
+
 # Python dependencies
 RUN pip install --no-cache-dir --upgrade pip \
  && pip install --no-cache-dir \

@@ -31,7 +31,7 @@ jobs:
           if [[ -n "${{ github.event.inputs.tag }}" ]]; then
             TAG="${{ github.event.inputs.tag }}"
           else
-            TAG="${GITHUB_REF_NAME}"   # e.g. v0.3.7 when pushing a tag
+            TAG="${GITHUB_REF_NAME}"
           fi
           ZIP_NAME="Plex ⇄ SIMKL ${TAG}.zip"
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
@@ -49,10 +49,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # Require README and example config
           ls -l config.example.json README.md
-
-          # Require at least one Python file (root or any subdir)
+          [[ -d assets ]] || { echo "Missing required directory: assets/"; exit 1; }
           shopt -s globstar nullglob
           py=(**/*.py *.py)
           if (( ${#py[@]} == 0 )); then
@@ -61,20 +59,23 @@ jobs:
           fi
           echo "Python files to include:"
           printf ' - %s\n' "${py[@]}"
+          echo "Assets directory will be included recursively."
 
-      - name: Create ZIP artifact (all *.py + selected files)
+      - name: Create ZIP artifact (preserve paths; include assets/)
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p dist
           shopt -s globstar nullglob
-          # Collect files: all .py (recursively) + explicit extras
           py=(**/*.py *.py)
           extras=(config.example.json README.md)
-          # -j = junk paths (flat zip, no directories)
-          zip -9 -j "dist/${{ steps.v.outputs.zipname }}" \
+          # -r to recurse directories; include assets/ with full structure
+          # Exclude VCS/CI and output dirs just in case
+          zip -9 -r "dist/${{ steps.v.outputs.zipname }}" \
             "${py[@]}" \
-            "${extras[@]}"
+            "${extras[@]}" \
+            assets \
+            -x ".git/*" ".github/*" "dist/*"
           (cd dist && sha256sum "${{ steps.v.outputs.zipname }}" > "${{ steps.v.outputs.zipname }}.sha256")
 
       - name: Create/Update GitHub Release

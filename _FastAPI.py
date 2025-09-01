@@ -159,24 +159,6 @@ def get_index_html() -> str:
     user-select:none
   }
 
-  /* Page layout */
-  main{
-    display:grid;
-    grid-template-columns:1fr 440px;
-    gap:16px;
-    padding:16px;
-    min-height:calc(100vh - 60px);
-    align-items:start;
-    align-content:start;
-  }
-  main.full{grid-template-columns:1fr}
-  main.single{grid-template-columns:1fr}
-  #ops-card{grid-column:1}
-  #placeholder-card{grid-column:1 / -1}   /* span full width */
-  #log-panel{grid-column:2; align-self:start}
-  #ops-card .chiprow{ margin-bottom: 20px; }
-  #ops-card .sep{ margin: 6px 0 16px; }
-  #ops-card .action-row{ margin-top: 0; }
 
   /* Cards */
   .card{
@@ -265,9 +247,9 @@ def get_index_html() -> str:
 
   /* Log panel */
   #det-log{
-    height: 10vh;          /* vast */
+    height: 25vh;          /* vast */
     min-height: 180px;
-    max-height: 10vh;
+    max-height: 25vh;
     scrollbar-width: thin;                 /* Firefox */
     scrollbar-color: #6a67ff #0b0b16;      /* thumb / track */
   }
@@ -588,14 +570,20 @@ def get_index_html() -> str:
   }
 
   /* Push the right meta card down in the details grid */
-  .details-grid > .det-right { 
-    top: 28px !important;   /* increase sticky offset */
+  .details-grid > .det-right {
+    top: 28px !important;   /* optional sticky offset */
+    display: flex;
+    flex-direction: column;
   }
 
-  /* Extra spacing inside the right column (optional) */
   .details-grid > .det-right .meta-card {
-    margin-top: 12px;       /* bump the whole card downward */
+    margin-top: 28px;       /* keep the spacing */
+    flex: 1;                /* let it grow to match left column height */
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between; /* buttons stick to bottom */
   }
+
 
   /* Hide the bottom title on the WATCHLIST PREVIEW (carousel) only */
   #placeholder-card .cap { display: none !important; }
@@ -766,33 +754,276 @@ def get_index_html() -> str:
 .log .bg104{ background:rgba(88,166,255,.22) } .log .bg105{ background:rgba(188,140,255,.22) }
 .log .bg106{ background:rgba(118,227,234,.22) } .log .bg107{ background:rgba(255,255,255,.22) }
 
-/* Statistics — neon panel */
-#stats-card{
-  position:relative;
-  border:1px solid var(--border);
-  border-radius:20px;
-  padding:16px;
-  background:linear-gradient(180deg,rgba(255,255,255,.02),transparent),var(--panel);
-  box-shadow:0 0 40px #000 inset;
+/* Statistics  */
+
+/* Layout */
+.stats-modern{display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:center}
+@media (max-width:900px){ .stats-modern{grid-template-columns:1fr} }
+
+/* Left: big */
+.stats-modern .now .label{font-size:11px;color:var(--muted);letter-spacing:.08em;text-transform:uppercase}
+.stats-modern .value{font-variant-numeric:tabular-nums;font-weight:900;font-size:52px;line-height:1}
+.stats-modern .chip.trend{
+  margin-top:8px;display:inline-flex;align-items:center;gap:8px;
+  padding:8px 12px;border-radius:999px;border:1px solid var(--border);
+  background:#0b0b16;color:#dfe6ff;font-weight:700
 }
-#stats-card .title{margin-bottom:10px}
+.chip.trend.up{border-color:#2ecc71;color:#c8ffe6;box-shadow:0 0 12px rgba(46,204,113,.25)}
+.chip.trend.down{border-color:#ff6b6b;color:#ffd7d7;box-shadow:0 0 12px rgba(255,77,79,.20)}
+.chip.trend.flat{border-color:#2a2a3a;color:#aeb6c2}
 
-/* Chart (keep as-is) */
-.stats-chart{position:relative;border:1px solid var(--border);border-radius:12px;height:120px;padding:8px;background:#0a0a17;overflow:hidden}
-.stats-chart::before{content:"";position:absolute;inset:0;background:
-  repeating-linear-gradient(to bottom, rgba(255,255,255,.06) 0 1px, transparent 1px 20px);pointer-events:none}
-.stats-chart::after{content:"";position:absolute;inset:-20% 0;background:
-  radial-gradient(120px 60px at -10% 50%,rgba(124,92,255,.10),transparent 60%),
-  radial-gradient(120px 60px at 110% 50%,rgba(0,183,235,.10),transparent 60%);
-  filter:blur(8px);animation:statsGlow 10s ease-in-out infinite alternate;pointer-events:none}
-@keyframes statsGlow{from{transform:translateX(-2%)}to{transform:translateX(2%)}}
+/* Right: facts + meter */
+.facts{display:grid;gap:8px;align-content:start}
+.fact{display:flex;justify-content:space-between;gap:12px}
+.fact .k{color:var(--muted);font-size:12px;letter-spacing:.02em}
+.fact .v{font-weight:800}
 
-/* place next to Synchronization */
-#stats-card{ grid-column:2; align-self:start; }
+/* Meter */
+.stat-meter{
+  position:relative;height:10px;border-radius:999px;overflow:hidden;
+  border:1px solid var(--border);
+  background:linear-gradient(180deg,rgba(255,255,255,.02),transparent),#0a0a17;
+}
+.stat-meter::before{
+  content:"";position:absolute;inset:-60% -40%;pointer-events:none;opacity:.35;
+  background:
+    radial-gradient(80% 40% at 0% 50%, #7c5cff33, transparent 60%),
+    radial-gradient(80% 40% at 100% 50%, #2da1ff33, transparent 60%);
+  filter:blur(10px);animation:meterGlow 10s ease-in-out infinite alternate;
+}
+@keyframes meterGlow{from{transform:translateX(-2%)}to{transform:translateX(2%)}}
+#stat-fill{
+  position:absolute;inset:0 auto 0 0;width:0%;
+  background:linear-gradient(135deg,#7c5cff,#2da1ff);
+  box-shadow:0 0 16px #7c5cff44 inset;
+  transition:width .6s cubic-bezier(.2,.8,.2,1);
+}
 
-/* fall back to single column */
+/* Celebration ping on positive change */
+#stats-card.celebrate{animation:statPop .6s cubic-bezier(.2,.9,.2,1)}
+@keyframes statPop{0%{transform:scale(.99)}50%{transform:scale(1.01)}100%{transform:scale(1)}}
+
+/* Keep position next to Synchronization */
+#stats-card{
+  grid-column: 2;        /* right column */
+  grid-row: 1;           /* same row as #ops-card */
+  align-self: stretch;   /* fill the row height */
+  height: 100%;
+}
+
 main.full #stats-card,
-main.single #stats-card{ grid-column:1; }
+main.single #stats-card{
+  grid-column: 1;
+  grid-row: auto;
+  align-self: start;
+  height: auto;
+}
+
+/* chips row + alt style */
+.chips{display:flex;gap:8px;margin-top:8px}
+
+/* mini legend */
+.mini-legend{display:grid;grid-template-columns:auto auto 1fr auto auto 1fr;gap:6px 10px;align-items:center;margin-top:6px}
+.dot{width:8px;height:8px;border-radius:50%;display:inline-block}
+.dot.add{background:#19c37d}
+.dot.del{background:#ff6b6b}
+.mini-legend .l{color:var(--muted);font-size:12px}
+.mini-legend .n{font-weight:800}
+
+/* Put the glow behind the entire card */
+#stats-card{ position:relative; overflow:hidden; }
+#stats-card .stats-modern.v2,
+#stats-card .stat-tiles{ position:relative; z-index:2; }
+
+/* Full-card aurora: spans entire stats card, not a single column */
+#stats-card .aurora{
+  position:absolute;
+  inset:-24% -18% -18% -18%;   /* bleed beyond edges so it “breathes” */
+  pointer-events:none;
+  z-index:1;
+  filter:blur(18px) saturate(118%);
+  opacity:.55;
+}
+
+/* tiles */
+.stat-tiles{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:12px}
+.tile{padding:10px 12px;border-radius:14px;border:1px solid var(--border);
+  background:linear-gradient(180deg,rgba(255,255,255,.02),transparent),#0b0b16;
+  display:flex;align-items:center;justify-content:space-between}
+.tile .k{color:#cdd5e0;font-size:12px;letter-spacing:.03em}
+.tile .n{font-weight:900;font-variant-numeric:tabular-nums}
+.tile.g1{background:linear-gradient(180deg,rgba(255,255,255,.02),transparent),#0b101e}
+.tile.g2{background:linear-gradient(180deg,rgba(255,255,255,.02),transparent),#0c1410}
+.tile.g3{background:linear-gradient(180deg,rgba(255,255,255,.02),transparent),#160e17}
+
+/* Grid: default is single column; use 2-col only on desktop Main */
+#layout{
+  display:grid;
+  gap:16px;
+  align-items:stretch;
+}
+
+/* 2 columns only when NOT in .single/.full */
+#layout:not(.single):not(.full){
+  grid-template-columns:minmax(620px,1fr) minmax(360px,420px);
+}
+
+/* Explicit single-column states */
+#layout.single,
+#layout.full{
+  grid-template-columns:1fr;
+}
+
+
+/* Place cards */
+#ops-card{ grid-column:1; }
+#stats-card{ grid-column:2; align-self:stretch; height:100%; }
+
+/* Watchlist preview always full width, under both cards */
+#placeholder-card{ grid-column:1 / -1; }
+
+/* Mobile: single column */
+@media (max-width:1100px){
+  #layout{ grid-template-columns:1fr; }
+  #ops-card,#stats-card,#placeholder-card{ grid-column:1; }
+}
+
+/* Align the action row (unchanged) */
+@media (min-width:1101px){
+  #ops-card .chiprow{  margin-bottom: 38px; }
+  #ops-card .action-row{ margin-top: 20px !important; }
+  #ops-card .stepper{ margin-top: 6px; }
+}
+
+/* Stats v2 – stacking & background */
+#stats-card.card { overflow: hidden; }     /* clip inside rounded corners */
+#stats-card { position: relative; }        /* stacking context */
+
+#stats-card { position: relative; overflow: hidden; isolation: isolate; }
+
+#stats-card::before{
+  content:"";
+  position:absolute; inset:-2px;                    /* fill the whole card */
+  background: url("/assets/background.svg") no-repeat 50% 96% / cover;
+  opacity:.14;                                      /* subtle */
+  mix-blend-mode: screen;
+  pointer-events:none;
+}
+
+/* content sits above the background */
+#stats-card .stats-modern.v2,
+#stats-card .stat-tiles { position: relative; z-index: 1; }
+
+#stats-card .stat-tiles{
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0,1fr));
+  gap: 10px;
+}
+@media (max-width:560px){
+  #stats-card .stat-tiles{ grid-template-columns: 1fr; }
+}
+
+/* Make "New" and "Removed" tiles more transparent */
+#stats-card .tile.g3{
+  background:
+    linear-gradient(180deg, rgba(255,255,255,.02), transparent),
+    rgba(11,11,22,0.32) !important;
+  border-color: rgba(255,255,255,.12) !important;
+  backdrop-filter: blur(2px) saturate(110%);
+}
+/* Keep labels strongly readable */
+#stats-card .tile.g3 .k{ color:#dfe3ee; }
+#stats-card .tile.g3 .n{ color:#fff; }
+
+:root{
+  --plex-rgb: 229,160,13;   /* Plex */
+  --simkl-rgb: 0,194,255;   /* SIMKL */
+}
+
+/* Transparent tiles, like New/Removed */
+.tile.plex,
+.tile.simkl{
+  background: transparent;
+  /* very thin brand edge */
+  border: 1px solid rgba(var(--plex-rgb), .35);
+  box-shadow: 0 0 6px rgba(var(--plex-rgb), .18);
+}
+.tile.simkl{
+  border-color: rgba(var(--simkl-rgb), .35);
+  box-shadow: 0 0 6px rgba(var(--simkl-rgb), .18);
+}
+
+/* keep text readable; no heavy glow */
+.tile.plex .k, .tile.plex .n,
+.tile.simkl .k, .tile.simkl .n{
+  color: var(--fg, #fff);
+  text-shadow: none;
+}
+
+/* gentle value-change pop (re-usable for all tiles) */
+.n.bump {
+  animation: valuePop .35s ease-out;
+}
+@keyframes valuePop {
+  0%   { transform: translateY(0) scale(1);   filter: none; opacity: .9; }
+  40%  { transform: translateY(-1px) scale(1.08); filter: drop-shadow(0 0 6px rgba(255,255,255,.25)); }
+  100% { transform: translateY(0) scale(1);   filter: none; opacity: 1; }
+}
+
+/* --- Insights styles --- */
+.stat-block { margin-top: 14px; padding: 12px; border-radius: 16px; background: rgba(255,255,255,0.03); box-shadow: 0 0 0 1px rgba(255,255,255,0.04) inset; }
+.stat-block-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:8px; }
+.pill { padding:3px 8px; border-radius:999px; font-size:12px; letter-spacing:.2px; background: linear-gradient(90deg,var(--grad1,#7c5cff),var(--grad2,#2de2ff)); -webkit-background-clip:text; -webkit-text-fill-color:transparent; font-weight:700; }
+.muted { opacity:.6; font-size:12px; }
+.ghost { background:transparent; border:none; color:inherit; opacity:.6; cursor:pointer; }
+.ghost:hover { opacity:1; }
+
+/* Sparkline */
+.sparkline { height: 64px; width: 100%; position: relative; }
+.sparkline svg { width:100%; height:100%; display:block; }
+.sparkline path.line { fill:none; stroke-width:2; filter: drop-shadow(0 0 6px rgba(124,92,255,.6)); stroke: url(#spark-grad); }
+.sparkline .dot { r:2.5; opacity:.9; }
+.sparkline .dot:hover { transform: scale(1.6); }
+
+/* History list */
+.history-list { display:grid; gap:8px; }
+.history-item { display:flex; align-items:center; justify-content:space-between; padding:10px 12px; border-radius:12px; background: rgba(255,255,255,.02); border:1px solid rgba(255,255,255,.06); }
+.history-meta { display:flex; gap:10px; align-items:center; font-size:12px; opacity:.9; }
+.badge { padding:2px 8px; border-radius:999px; font-size:11px; border:1px solid rgba(255,255,255,.12); }
+.badge.ok { border-color: rgba(46, 204, 113, .5); }
+.badge.warn { border-color: rgba(231, 76, 60, .5); }
+
+/* Watchtime */
+.watchtime { display:flex; align-items:baseline; gap:10px; }
+.watchtime .big { font-size:28px; font-weight:800; letter-spacing:.2px; background: linear-gradient(90deg,var(--grad1,#7c5cff),var(--grad2,#2de2ff)); -webkit-background-clip:text; -webkit-text-fill-color:transparent; }
+.watchtime .units { font-size:12px; opacity:.8; }
+.micro-note { margin-top:6px; font-size:11px; opacity:.6; }
+
+/* Subtle appear */
+.stat-block { animation: fadeUp .35s ease-out both; }
+@keyframes fadeUp { from { opacity:0; transform: translateY(6px) } to { opacity:1; transform:none } }
+
+/* collapse Insights when details are not open */
+#stats-card.collapsed .stat-block { display: none; }
+#stats-card { transition: filter .2s ease; }
+#stats-card.expanded { filter: brightness(1.02); }
+
+/* white text - Insight Modules*/
+.pill.plain {
+  background: none !important;
+  -webkit-background-clip: unset !important;
+  -webkit-text-fill-color: unset !important;
+  color: #fff !important;
+}
+
+#plex_pin {
+  font-size: 2rem;        /* make digits bigger */
+  font-weight: 700;       /* bold */
+  letter-spacing: 0.2em;  /* spaced digits */
+  color: #fff;            /* white text */
+  text-align: center;     /* center align */
+  max-width: 7ch;   /* fits up to 5 characters + spacing */
+}
 
 </style>
 
@@ -883,7 +1114,7 @@ main.single #stats-card{ grid-column:1; }
         <div class="det-right">
           <div class="meta-card">
             <div class="meta-grid">
-              <div class="meta-label">Command</div>
+              <div class="meta-label">Module</div>
               <div class="meta-value"><span id="det-cmd" class="pillvalue truncate">–</span></div>
               <div class="meta-label">Version</div>
               <div class="meta-value"><span id="det-ver" class="pillvalue">–</span></div>
@@ -903,40 +1134,95 @@ main.single #stats-card{ grid-column:1; }
   </section>
 
   <!-- MAIN: Statistics card -->
-  <section id="stats-card" class="card hidden">
+  <section id="stats-card" class="card collapsed">
     <div class="title">Statistics</div>
 
-    <div class="stats-wrap">
-      <div class="metric now">
+    <div class="stats-modern v2">
+      <div class="now">
         <div class="label">Now</div>
-        <div class="value" id="stat-now" data-v="0">0</div>
-        <div class="chip trend flat" id="trend-week">no change</div>
+        <div id="stat-now" class="value" data-v="0">0</div>
+        <div class="chips">
+          <span id="trend-week" class="chip trend flat">no change</span>
+        </div>
       </div>
 
-      <div class="mini">
-        <div class="metric">
-          <div class="label">Last Week</div>
-          <div class="value small" id="stat-week" data-v="0">0</div>
+      <div class="facts">
+        <div class="fact"><span class="k">Last Week</span><span id="stat-week" class="v" data-v="0">0</span></div>
+        <div class="fact"><span class="k">Last Month</span><span id="stat-month" class="v" data-v="0">0</span></div>
+
+        <div class="mini-legend">
+          <span class="dot add"></span><span class="l">Added</span><span id="stat-added" class="n">0</span>
+          <span class="dot del"></span><span class="l">Removed</span><span id="stat-removed" class="n">0</span>
         </div>
-        <div class="metric">
-          <div class="label">Last Month</div>
-          <div class="value small" id="stat-month" data-v="0">0</div>
-        </div>
+
+        <div class="stat-meter" aria-hidden="true"><span id="stat-fill"></span></div>
+      </div>
+    </div>
+
+    <div class="stat-tiles">
+      <div class="tile g3" id="tile-new" hidden>
+        <div class="k">New</div><div class="n" id="stat-new">0</div>
+      </div>
+      <div class="tile g3" id="tile-del" hidden>
+        <div class="k">Removed</div><div class="n" id="stat-del">0</div>
+      </div>
+
+      <div class="tile plex" id="tile-plex">
+        <div class="k">Plex</div><div class="n" id="stat-plex">0</div>
+      </div>
+      <div class="tile simkl" id="tile-simkl">
+        <div class="k">SIMKL</div><div class="n" id="stat-simkl">0</div>
+      </div>
+    </div>
+
+    <!-- Insights: Recent syncs -->
+    <div class="stat-block">
+      <div class="stat-block-header">
+        <span class="pill plain">Recent syncs</span>
+        <button class="ghost refresh-insights" onclick="refreshInsights()" title="Refresh">⟲</button>
+      </div>
+      <div id="sync-history" class="history-list"></div>
+    </div>
+
+    <!-- Insights: Trend 
+    <div class="stat-block">
+      <div class="stat-block-header">
+        <span class="pill plain">Trend</span>
+        <span class="muted">Last 30 samples</span>
+      </div>
+      <div id="sparkline" class="sparkline"></div>
+    </div>
+    -->
+	
+    <!-- TMDB estimated watch time
+    Insights: Estimated watch time 
+    <div class="stat-block">
+      <div class="stat-block-header"><span class="pill plain">Estimated watch time</span></div>
+      <div id="watchtime" class="watchtime"></div>
+      <div class="micro-note" id="watchtime-note"></div>
+    </div>
+    -->
 
   </section>
 
-
-  <!-- MAIN: Poster carousel -->
+  <!-- MAIN: Watchlist Preview (carousel) -->
   <section id="placeholder-card" class="card hidden">
-    <div class="title">Watchlist preview</div>
-    <div class="wall-wrap">
-      <div class="nav prev" onclick="scrollWall(-1)" aria-label="Previous">‹</div>
-      <div class="nav next" onclick="scrollWall(1)" aria-label="Next">›</div>
-      <div class="edge left" id="edgeL"></div>
-      <div class="edge right" id="edgeR"></div>
-      <div id="poster-row" class="row-scroll hidden"></div>
-    </div>
+    <div class="title">Watchlist Preview</div>
+
     <div id="wall-msg" class="wall-msg">Loading…</div>
+
+    <div class="wall-wrap">
+      <!-- gradient edges -->
+      <div id="edgeL" class="edge left"></div>
+      <div id="edgeR" class="edge right"></div>
+
+      <!-- posters row -->
+      <div id="poster-row" class="row-scroll" aria-label="Watchlist preview"></div>
+
+      <!-- nav buttons -->
+      <button class="nav prev" type="button" onclick="scrollWall(-1)" aria-label="Scroll left">‹</button>
+      <button class="nav next" type="button" onclick="scrollWall(1)"  aria-label="Scroll right">›</button>
+    </div>
   </section>
 
   <!-- WATCHLIST (grid) -->
@@ -988,6 +1274,7 @@ main.single #stats-card{ grid-column:1; }
         <div class="chiprow">
           <button class="btn danger" onclick="clearState()">Clear State</button>
           <button class="btn danger" onclick="clearCache()">Clear Cache</button>
+          <button class="btn danger" onclick="resetStats()">Reset Statistics</button>
         </div>
         <div id="tb_msg" class="msg ok hidden">Done ✓</div>
       </div>
@@ -1016,12 +1303,11 @@ main.single #stats-card{ grid-column:1; }
               <div>
                 <label>PIN</label>
                 <div style="display:flex;gap:8px">
-                  <input id="plex_pin" placeholder="request to fill" readonly>
+                  <input id="plex_pin" placeholder="" readonly>
                   <button id="btn-copy-plex-pin" class="btn copy" onclick="copyInputValue('plex_pin', this)">Copy</button>
                 </div>
               </div>
             </div>
-
             <div style="display:flex;gap:8px">
               <button class="btn" onclick="requestPlexPin()">Request Token</button>
               <div style="align-self:center;color:var(--muted)">Opens plex.tv/link (PIN copied to clipboard)</div>
@@ -1108,8 +1394,6 @@ main.single #stats-card{ grid-column:1; }
       <span id="save_msg" class="msg ok hidden">Settings saved ✓</span>
     </div>
   </section>
-
-</section>
 
 <!-- Debug log -->
 <aside id="log-panel" class="card hidden">
@@ -1247,21 +1531,51 @@ main.single #stats-card{ grid-column:1; }
   /* ====== About modal ====== */
   async function openAbout(){
     try{
-      const r = await fetch('/api/version', { cache: 'no-store' });
+      // Bust any cache so we don't show an old payload
+      const r = await fetch('/api/version?cb=' + Date.now(), { cache: 'no-store' });
       const j = r.ok ? await r.json() : {};
 
-      const cur    = j.current || '0.0.0';
-      const latest = j.latest  || null;
+      const cur    = (j.current ?? '0.0.0').toString().trim();
+      const latest = (j.latest  ?? '').toString().trim() || null;
       const url    = j.html_url || 'https://github.com/cenodude/plex-simkl-watchlist-sync/releases';
       const upd    = !!j.update_available;
 
-      document.getElementById('about-version')?.replaceChildren(document.createTextNode(`Version ${cur}`));
-      const relEl = document.getElementById('about-latest'); if (relEl){ relEl.href = url; relEl.textContent = latest ? `v${latest}` : 'Releases'; }
+      // "Version x.y.z" — from CURRENT
+      const verEl = document.getElementById('about-version');
+      if (verEl){
+        verEl.textContent = `Version ${cur}`;
+        verEl.dataset.version = cur; // guard against later accidental overwrites
+      }
+
+      // If you also show a version elsewhere, keep it in sync (safe no-op if missing)
+      const headerVer = document.getElementById('app-version');
+      if (headerVer){
+        headerVer.textContent = `Version ${cur}`;
+        headerVer.dataset.version = cur;
+      }
+
+      // Latest release link/label (separate from current)
+      const relEl = document.getElementById('about-latest');
+      if (relEl){
+        relEl.href = url;
+        relEl.textContent = latest ? `v${latest}` : 'Releases';
+        relEl.setAttribute('aria-label', latest ? `Latest release v${latest}` : 'Releases');
+      }
+
+      // Update badge
       const updEl = document.getElementById('about-update');
       if (updEl){
         updEl.classList.add('badge','upd');
-        if (upd && latest){ updEl.textContent = `Update ${latest} available`; updEl.classList.remove('hidden'); updEl.classList.remove('reveal'); void updEl.offsetWidth; updEl.classList.add('reveal'); }
-        else { updEl.textContent = ''; updEl.classList.add('hidden'); updEl.classList.remove('reveal'); }
+        if (upd && latest){
+          updEl.textContent = `Update ${latest} available`;
+          updEl.classList.remove('hidden','reveal');
+          void updEl.offsetWidth; // restart CSS animation
+          updEl.classList.add('reveal');
+        } else {
+          updEl.textContent = '';
+          updEl.classList.add('hidden');
+          updEl.classList.remove('reveal');
+        }
       }
     } catch(_) {}
     document.getElementById('about-backdrop')?.classList.remove('hidden');
@@ -1273,6 +1587,7 @@ main.single #stats-card{ grid-column:1; }
   }
 
   document.addEventListener('keydown', (e)=>{ if (e.key === 'Escape') closeAbout(); });
+
 
   /* ====== Tabs ====== */
   async function showTab(n) {
@@ -1357,6 +1672,145 @@ main.single #stats-card{ grid-column:1; }
     document.getElementById('upd-pill').classList.add('hidden');
     closeUpdateModal();
   }
+
+  /* expanded insight Statistics */
+  function setStatsExpanded(expanded){
+    const sc = document.getElementById('stats-card');
+    if(!sc) return;
+    sc.classList.toggle('collapsed', !expanded);
+    sc.classList.toggle('expanded', !!expanded);
+    if (expanded) { try { refreshInsights(); } catch(e){} }
+  }
+
+  function isElementOpen(el){
+    if (!el) return false;
+    // consider "open"/"expanded"/"show" class OR visibility/height as open
+    const c = el.classList || {};
+    if (c.contains?.('open') || c.contains?.('expanded') || c.contains?.('show')) return true;
+    const style = window.getComputedStyle(el);
+    return !(style.display === 'none' || style.visibility === 'hidden' || el.offsetHeight === 0);
+  }
+
+  function findDetailsButton(){
+    // try common IDs/classes first
+    return document.getElementById('btn-details')
+        || document.querySelector('[data-action="details"], .btn-details')
+        || Array.from(document.querySelectorAll('button'))
+            .find(b => (b.textContent || '').trim().toLowerCase() === 'view details');
+  }
+
+  function findDetailsPanel(){
+    // adapt to your DOM: try several likely targets
+    return document.getElementById('sync-output')
+        || document.getElementById('details')
+        || document.querySelector('#sync-log, .sync-output, [data-pane="details"]');
+  }
+
+  function wireDetailsToStats(){
+    const btn = findDetailsButton();
+    const panel = findDetailsPanel();
+
+    // set initial state based on whether details are open at load
+    setStatsExpanded(isElementOpen(panel));
+
+    if (btn){
+      btn.addEventListener('click', () => {
+        // wait a tick for the panel to toggle
+        setTimeout(() => setStatsExpanded(isElementOpen(panel)), 50);
+      });
+    }
+
+    // optional: collapse stats when starting a new sync
+    const syncBtn = document.getElementById('btn-sync') 
+                || document.querySelector('[data-action="sync"], .btn-sync');
+    if (syncBtn){
+      syncBtn.addEventListener('click', () => setStatsExpanded(false));
+    }
+  }
+
+  document.addEventListener('DOMContentLoaded', wireDetailsToStats);
+
+  // BLOCK INSIGHT
+  async function fetchJSON(u){ const r = await fetch(u, {cache: 'no-store'}); return r.ok ? r.json() : null; }
+  
+
+  async function refreshInsights(){
+    const data = await fetchJSON('/api/insights?limit_samples=60&history=3');
+    if(!data) return;
+
+    // 1) Sparkline
+    renderSparkline('sparkline', data.series || []);
+
+    // 3) History
+    const hist = data.history || [];
+    const hEl = document.getElementById('sync-history');
+    hEl.innerHTML = hist.map(row => {
+      const dur = (row.duration_sec!=null) ? (row.duration_sec.toFixed ? row.duration_sec.toFixed(1) : row.duration_sec) : '—';
+      const added = (row.added ?? '—');
+      const removed = (row.removed ?? '—');
+      const badgeClass = (String(row.result||'').toUpperCase()==='EQUAL') ? 'ok' : 'warn';
+      const when = row.finished_at || row.started_at || '';
+      return `
+        <div class="history-item">
+          <div class="history-meta">
+            <span class="badge ${badgeClass}">${row.result || '—'}</span>
+            <span>${when}</span>
+            <span>⏱ ${dur}s</span>
+          </div>
+          <div class="history-meta">
+            <span class="badge">+${added}</span>
+            <span class="badge">-${removed}</span>
+            <span class="badge">P:${row.plex_post ?? '—'}</span>
+            <span class="badge">S:${row.simkl_post ?? '—'}</span>
+          </div>
+        </div>`;
+    }).join('') || `<div class="history-item"><div class="history-meta">No history yet</div></div>`;
+
+    // 6) Watchtime
+    const wt = data.watchtime || {minutes:0, movies:0, shows:0, method:'fallback'};
+    const wEl = document.getElementById('watchtime');
+    const note = document.getElementById('watchtime-note');
+    wEl.innerHTML = `
+      <div class="big">≈ ${wt.hours}</div>
+      <div class="units">hrs <span style="opacity:.6">(${wt.days} days)</span><br>
+        <span style="opacity:.8">${wt.movies} movies • ${wt.shows} shows</span>
+      </div>`;
+    note.textContent = (wt.method==='tmdb') ? 'Based on TMDb runtimes' :
+                      (wt.method==='mixed') ? 'TMDb + defaults (115/45 min)' :
+                      'Defaults used (115/45 min)';
+  }
+
+  // lightweight SVG sparkline with neon gradient
+  function renderSparkline(id, points){
+    const el = document.getElementById(id);
+    if(!el){ return; }
+    if(!points.length){ el.innerHTML = `<div class="muted">No data yet</div>`; return; }
+
+    const w = el.clientWidth || 260, h = el.clientHeight || 64, pad=4;
+    const xs = points.map(p=>Number(p.ts)||0);
+    const ys = points.map(p=>Number(p.count)||0);
+    const minX = Math.min(...xs), maxX = Math.max(...xs);
+    const minY = Math.min(...ys), maxY = Math.max(...ys);
+    const x = t => (maxX===minX)? pad : pad + (w-2*pad) * (t-minX)/(maxX-minX);
+    const y = v => (maxY===minY)? (h/2) : (h-pad) - (h-2*pad) * (v-minY)/(maxY-minY);
+
+    const d = points.map((p,i)=> (i? 'L':'M') + x(p.ts) + ',' + y(p.count)).join(' ');
+    const dots = points.map(p=> `<circle class="dot" cx="${x(p.ts)}" cy="${y(p.count)}"></circle>`).join('');
+    el.innerHTML = `
+    <svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">
+      <defs>
+        <linearGradient id="spark-grad" x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0" stop-color="var(--grad1,#7c5cff)"/>
+          <stop offset="1" stop-color="var(--grad2,#2de2ff)"/>
+        </linearGradient>
+      </defs>
+      <path class="line" d="${d}"></path>
+      ${dots}
+    </svg>`;
+  }
+
+  document.addEventListener('DOMContentLoaded', refreshInsights);
+
 
 async function checkForUpdate() {
   try {
@@ -1535,33 +1989,93 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     async function refreshStats(force=false){
-      const nowT=Date.now();
-      if(!force && nowT-_lastStatsFetch<900) return;
-      _lastStatsFetch=nowT;
+      const nowT = Date.now();
+      if (!force && nowT - _lastStatsFetch < 900) return;
+      _lastStatsFetch = nowT;
+
       try{
-        const j=await fetch('/api/stats',{cache:'no-store'}).then(r=>r.json());
-        if(!j?.ok) return;
-        const elNow=document.getElementById('stat-now');
-        const elW=document.getElementById('stat-week');
-        const elM=document.getElementById('stat-month');
-        if(!elNow||!elW||!elM) return;
+        const j = await fetch('/api/stats', { cache:'no-store' }).then(r=>r.json());
+        if (!j?.ok) return;
 
-        const n=j.now|0, w=j.week|0, m=j.month|0;
-        animateNumber(elNow,n);
-        animateNumber(elW,w);
-        animateNumber(elM,m);
-        animateChart(n,w,m);
+        const elNow = document.getElementById('stat-now');
+        const elW   = document.getElementById('stat-week');
+        const elM   = document.getElementById('stat-month');
+        if (!elNow || !elW || !elM) return;
 
-        const dW=n-w, t=document.getElementById('trend-week');
-        if(t){
-          const cls=dW>0?'up':(dW<0?'down':'flat');
-          t.className='chip trend '+cls;
-          t.textContent=dW===0?'no change':((dW>0?'+':'')+dW+' vs last week');
-          if(cls==='up'){ const card=document.getElementById('stats-card'); card?.classList.add('celebrate'); setTimeout(()=>card?.classList.remove('celebrate'),800); }
+        const n = j.now|0, w = j.week|0, m = j.month|0;
+
+        animateNumber(elNow, n);
+        animateNumber(elW,   w);
+        animateNumber(elM,   m);
+
+        // meter
+        const max = Math.max(1, n, w, m);
+        const fill = document.getElementById('stat-fill');
+        if (fill) fill.style.width = Math.round((n / max) * 100) + '%';
+
+        // deltas
+        const bumpOne = (delta, label) => {
+          const t = document.getElementById('trend-week'); if (!t) return;
+          const cls = delta>0 ? 'up' : (delta<0 ? 'down' : 'flat');
+          t.className = 'chip trend ' + cls;
+          t.textContent = delta === 0 ? 'no change' : `${delta>0?'+':''}${delta} vs ${label}`;
+          if (cls === 'up'){ const c = document.getElementById('stats-card'); c?.classList.remove('celebrate'); void c?.offsetWidth; c?.classList.add('celebrate'); }
+        };
+        bumpOne(n - w, 'last week'); // or: bumpOne(n - m, 'last month')
+
+        // optional API fields
+        const by        = j.by_source || {};
+        const totalAdd  = Number.isFinite(j.added)   ? j.added   : null; // all-time totals
+        const totalRem  = Number.isFinite(j.removed) ? j.removed : null;
+        const lastAdd   = Number.isFinite(j.new)     ? j.new     : null; // last run only
+        const lastRem   = Number.isFinite(j.del)     ? j.del     : null;
+
+        // legend numbers (all-time)
+        const setTxt = (id, val) => {
+          const el = document.getElementById(id);
+          if (el) el.textContent = String(val ?? 0);
+        };
+        setTxt('stat-added',   totalAdd);
+        setTxt('stat-removed', totalRem);
+
+        // tiles (last run only, auto-hide when null)
+        const setTile = (tileId, numId, val) => {
+          const t = document.getElementById(tileId), nEl = document.getElementById(numId);
+          if (!t || !nEl) return;
+          if (val == null) { t.hidden = true; return; }
+          nEl.textContent = String(val); t.hidden = false;
+        };
+        setTile('tile-new', 'stat-new', lastAdd);
+        setTile('tile-del', 'stat-del', lastRem);
+
+        // brand totals for Plex / SIMKL (transparent tiles + subtle edge glow)
+        const plexVal  = Number.isFinite(by.plex_total)  ? by.plex_total  : ((by.plex  ?? 0) + (by.both ?? 0));
+        const simklVal = Number.isFinite(by.simkl_total) ? by.simkl_total : ((by.simkl ?? 0) + (by.both ?? 0));
+
+        const elP = document.getElementById('stat-plex');
+        const elS = document.getElementById('stat-simkl');
+
+        const curP = Number(elP?.textContent || 0);
+        const curS = Number(elS?.textContent || 0);
+
+        const pop = (el) => { if (!el) return; el.classList.remove('bump'); void el.offsetWidth; el.classList.add('bump'); };
+
+        if (elP){
+          if (plexVal !== curP){ animateNumber(elP, plexVal); pop(elP); }
+          else { elP.textContent = String(plexVal); }
         }
+        if (elS){
+          if (simklVal !== curS){ animateNumber(elS, simklVal); pop(elS); }
+          else { elS.textContent = String(simklVal); }
+        }
+
+        // ensure tiles are visible
+        document.getElementById('tile-plex')?.removeAttribute('hidden');
+        document.getElementById('tile-simkl')?.removeAttribute('hidden');
+
       }catch(_){}
     }
-    
+
     function _setBarValues(n,w,m){
       const bw=document.querySelector('.bar.week');
       const bm=document.querySelector('.bar.month');
@@ -1609,9 +2123,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Call once on boot
     document.addEventListener('DOMContentLoaded', _initStatsTooltip);
-
-    // In your refreshStats(), after computing n,w,m and calling animateNumber/animateChart, add:
-    // _setBarValues(n,w,m);
 
   // Call at boot
   document.addEventListener('DOMContentLoaded', () => { refreshStats(true); });
@@ -1881,7 +2392,6 @@ document.addEventListener('DOMContentLoaded', () => {
         console.warn('saveSettings: scheduling failed', e);
       }
 
-
       // 4) Refresh UI pieces
       try { await refreshStatus(true); } catch {}
       try { updateTmdbHint?.(); } catch {}
@@ -1998,6 +2508,25 @@ document.addEventListener('DOMContentLoaded', () => {
     }catch(_){}
   }
 
+  async function resetStats(){
+    const btnText = "Reset Statistics";
+    try{
+      const r = await fetch('/api/troubleshoot/reset-stats', { method:'POST' });
+      const j = await r.json();
+      const m = document.getElementById('tb_msg');
+      m.classList.remove('hidden');
+      m.textContent = j.ok ? (btnText + ' – done ✓') : (btnText + ' – failed' + (j.error ? ` (${j.error})` : ''));
+      setTimeout(()=>m.classList.add('hidden'), 2200);
+
+      if (j.ok && typeof refreshStats === 'function') refreshStats(true);
+    }catch(e){
+      const m = document.getElementById('tb_msg');
+      m.classList.remove('hidden');
+      m.textContent = btnText + ' – failed (network)';
+      setTimeout(()=>m.classList.add('hidden'), 2200);
+    }
+  }
+
   /* TMDb hint logic (Settings page only) */
   async function updateTmdbHint(){
     const hint  = document.getElementById('tmdb_hint');
@@ -2016,7 +2545,6 @@ document.addEventListener('DOMContentLoaded', () => {
     } catch { hint.classList.remove('hidden'); }
   }
 
-  /* Plex auth (PIN flow) */
   /* Plex auth (PIN flow) */
   function setPlexSuccess(show){
     document.getElementById('plex_msg').classList.toggle('hidden', !show);

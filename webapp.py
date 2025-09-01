@@ -14,12 +14,15 @@ import threading
 import time
 import os
 import shutil
+import shlex
 import urllib.request
 import urllib.error
 import urllib.parse
 from _statistics import Stats
 from fastapi import Query
 from fastapi.responses import StreamingResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse, Response
 from fastapi.responses import JSONResponse
 from _watchlist import build_watchlist, delete_watchlist_item
 from _FastAPI import get_index_html
@@ -30,6 +33,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 from contextlib import asynccontextmanager
+from typing import Optional
 
 import uvicorn
 from fastapi import Body, FastAPI, Request, Path as FPath, Query
@@ -48,21 +52,26 @@ from _auth_helper import (
     simkl_build_authorize_url,
     simkl_exchange_code,
 )
-from _TMDB import get_poster_file, get_meta
+from _TMDB import get_poster_file, get_meta, get_runtime
 from _scheduling import SyncScheduler
-
 
 ROOT = Path(__file__).resolve().parent
 
 # --- App (create FIRST, then decorate handlers below) ---
 app = FastAPI()
 
+# --assets image mapping
+ASSETS_DIR = ROOT / "assets"
+ASSETS_DIR.mkdir(parents=True, exist_ok=True)
+app.mount("/assets", StaticFiles(directory=str(ASSETS_DIR)), name="assets")
+
 # --- Versioning ---
-CURRENT_VERSION = os.getenv("APP_VERSION", "v0.4.5")  # keep in sync with release tag
+CURRENT_VERSION = os.getenv("APP_VERSION", "v0.4.5")  # keep in sync with release tag....i think
 REPO = os.getenv("GITHUB_REPO", "cenodude/plex-simkl-watchlist-sync")
 GITHUB_API = f"https://api.github.com/repos/{REPO}/releases/latest"
 
 router = APIRouter()
+
 
 # -- Statistics (singleton) ---
 STATS = Stats()
@@ -373,7 +382,25 @@ def _parse_sync_line(line: str) -> None:
             _summary_set("running", True)
             SUMMARY["raw_started_ts"] = time.time()
             _summary_set("started_at", datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"))
-        _summary_set("cmd", m.group("cmd"))
+
+        # --- keep only script filename in "cmd" ---
+        cmd_str = m.group("cmd")
+        short_cmd = cmd_str
+        try:
+            # split respecting quotes
+            parts = shlex.split(cmd_str)
+            # find the last token that looks like a python script and strip its path
+            script = next((os.path.basename(p) for p in reversed(parts) if p.endswith(".py")), None)
+            if script:
+                short_cmd = script
+            elif parts:
+                # fallback: just basename of first token
+                short_cmd = os.path.basename(parts[0])
+        except Exception:
+            pass
+        _summary_set("cmd", short_cmd)
+        # -----------------------------------------
+
         _summary_set_timeline("start", True)
         return
 
@@ -394,9 +421,9 @@ def _parse_sync_line(line: str) -> None:
     # Match Post-sync counts
     m = re.search(r"Post-sync:\s+Plex=(?P<pa>\d+)\s+vs\s+SIMKL=(?P<sa>\d+)\s*(?:→|->)\s*(?P<res>[A-Z]+)", s)
     if m:
-        _summary_set("plex_post", int(m.group("pa")))  # Store Post-sync Plex count
+        _summary_set("plex_post", int(m.group("pa")))   # Store Post-sync Plex count
         _summary_set("simkl_post", int(m.group("sa")))  # Store Post-sync SIMKL count
-        _summary_set("result", m.group("res"))  # Store the result (EQUAL or others)
+        _summary_set("result", m.group("res"))          # Store the result (EQUAL or others)
         _summary_set_timeline("post", True)
         return
 
@@ -422,17 +449,15 @@ def _parse_sync_line(line: str) -> None:
         except Exception:
             pass
 
+
 def _stream_proc(cmd: List[str], tag: str) -> None:
     try:
         if tag == "SYNC":
-            # reset + start flags
             _summary_reset()
             _summary_set("running", True)
             SUMMARY["raw_started_ts"] = time.time()
             _summary_set("started_at", datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"))
             _summary_set_timeline("start", True)
-
-            # vul cmd meteen; geef version een veilige fallback als de log hem niet print
             try:
                 _summary_set("cmd", " ".join(cmd))
             except Exception:
@@ -443,7 +468,6 @@ def _stream_proc(cmd: List[str], tag: str) -> None:
             except Exception:
                 pass
 
-        # synthetische startregel → loggen én parse'n (zodat 'cmd' ook via parser gevuld kan worden)
         line0 = f"> {tag} start: {' '.join(cmd)}"
         _append_log(tag, line0)
         if tag == "SYNC":
@@ -480,16 +504,38 @@ def _stream_proc(cmd: List[str], tag: str) -> None:
             _summary_set("finished_at", datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"))
             _summary_set("running", False)
             _summary_set_timeline("done", True)
+
+            # write report (atomic)
             try:
                 ts = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
                 path = REPORT_DIR / f"sync-{ts}.json"
-                with path.open("w", encoding="utf-8") as f:
-                    json.dump(_summary_snapshot(), f, indent=2)
+                snap = _summary_snapshot()
+                tmp = path.with_suffix(".tmp")
+                tmp.write_text(json.dumps(snap, indent=2), encoding="utf-8")
+                tmp.replace(path)
             except Exception:
                 pass
 
+            # refresh statistics.json, then enrich the latest report with added/removed
             try:
-                STATS.refresh_from_state(_load_state())
+                try:
+                    STATS.refresh_from_state(_load_state())
+                except Exception:
+                    pass
+
+                ov = STATS.overview(None)
+                added_last = int(ov.get("new", 0))
+                removed_last = int(ov.get("del", 0))
+
+                reports = sorted(REPORT_DIR.glob("sync-*.json"), key=lambda p: p.stat().st_mtime)
+                if reports:
+                    latest = reports[-1]
+                    data = json.loads(latest.read_text(encoding="utf-8"))
+                    data["added_last"] = added_last
+                    data["removed_last"] = removed_last
+                    tmp2 = latest.with_suffix(".tmp")
+                    tmp2.write_text(json.dumps(data, indent=2), encoding="utf-8")
+                    tmp2.replace(latest)
             except Exception:
                 pass
 
@@ -497,7 +543,6 @@ def _stream_proc(cmd: List[str], tag: str) -> None:
         _append_log(tag, f"[{tag}] ERROR: {e}")
     finally:
         RUNNING_PROCS.pop(tag, None)
-
 
 def start_proc_detached(cmd: List[str], tag: str) -> None:
     threading.Thread(target=_stream_proc, args=(cmd, tag), daemon=True).start()
@@ -769,9 +814,10 @@ def connected_status(cfg: Dict[str, Any]) -> Tuple[bool, bool, bool]:
     debug = bool(cfg.get("runtime", {}).get("debug"))
     return plex_ok, simkl_ok, debug
 
-# ---------- FastAPI ----------
+# Startup
 @app.on_event("startup")
 async def _on_startup():
+    # 1) scheduler (unchanged)
     try:
         scheduler.ensure_defaults()
         sch = (load_config().get("scheduling") or {})
@@ -780,6 +826,143 @@ async def _on_startup():
     except Exception:
         pass
 
+    # 2) warm statistics.json once at boot (new)
+    #    - if state.json exists, compute & persist stats so /api/stats
+    #      can serve week/month/added/removed immediately.
+    try:
+        # Only bother if we have a state
+        st = _load_state()
+        if not st:
+            return
+
+        # Avoid a useless write if the file already exists and is non-empty
+        stats_path = (CONFIG_BASE / "statistics.json")
+        if not stats_path.exists() or stats_path.stat().st_size == 0:
+            STATS.refresh_from_state(st)
+        else:
+            # Optional: refresh anyway to ensure “generated_at” is recent and
+            # samples/events are consistent (safe, atomic)
+            STATS.refresh_from_state(st)
+    except Exception:
+        # Never block startup on stats warm-up
+        pass
+
+@app.get("/api/insights")
+
+def api_insights(limit_samples: int = Query(60), history: int = Query(3)) -> JSONResponse:
+    """
+    Returns:
+      - series: last N (time, count) samples from statistics.json (ascending order)
+      - history: last few sync reports (date, duration, added_last, removed_last, result)
+      - watchtime: estimated minutes/hours/days with method=tmdb|fallback|mixed
+    """
+    # --- series from statistics.json ---
+    try:
+        stats_raw = json.loads((CONFIG_BASE / "statistics.json").read_text(encoding="utf-8"))
+    except Exception:
+        stats_raw = {}
+    samples = list(stats_raw.get("samples") or [])
+    samples.sort(key=lambda r: int(r.get("ts") or 0))
+    if limit_samples > 0:
+        samples = samples[-int(limit_samples):]
+    series = [{"ts": int(r.get("ts") or 0), "count": int(r.get("count") or 0)} for r in samples]
+
+    # --- history from saved sync reports ---
+    rows = []
+    try:
+        files = sorted(REPORT_DIR.glob("sync-*.json"), key=lambda p: p.stat().st_mtime, reverse=True)[:max(1, int(history))]
+        for p in files:
+            try:
+                d = json.loads(p.read_text(encoding="utf-8"))
+                rows.append({
+                    "started_at": d.get("started_at"),
+                    "finished_at": d.get("finished_at"),
+                    "duration_sec": d.get("duration_sec"),
+                    "result": d.get("result"),
+                    "plex_post": d.get("plex_post"),
+                    "simkl_post": d.get("simkl_post"),
+                    "added": d.get("added_last"),   # may be None on older reports
+                    "removed": d.get("removed_last")
+                })
+            except Exception:
+                continue
+    except Exception:
+        pass
+
+    # --- watch time estimate ---
+    state = _load_state()
+    union = {}
+    try:
+        union = Stats._union_keys(state) if state else {}
+    except Exception:
+        union = {}
+
+    plex_items = ((state.get("plex") or {}).get("items") or {}) if state else {}
+    simkl_items = ((state.get("simkl") or {}).get("items") or {}) if state else {}
+
+    cfg = load_config()
+    api_key = (cfg.get("tmdb", {}) or {}).get("api_key") or ""
+    use_tmdb = bool(api_key)
+
+    movies = shows = 0
+    total_min = 0
+    tmdb_hits = tmdb_misses = 0
+
+    # cap to avoid huge first-load fetch; cached files will be instant
+    fetch_cap = 50
+    fetched = 0
+
+    for k, meta in (union or {}).items():
+        typ = "movie" if (meta.get("type") or "") == "movie" else "tv"
+        src = plex_items.get(k) or simkl_items.get(k) or {}
+        ids = (src.get("ids") or {})
+        tmdb_id = ids.get("tmdb") or src.get("tmdb")
+
+        if typ == "movie": movies += 1
+        else: shows += 1
+
+        minutes = None
+        if use_tmdb and tmdb_id and fetched < fetch_cap:
+            try:
+                minutes = get_runtime(api_key, typ, int(tmdb_id), CACHE_DIR)  # <-- use helper from _TMDB.py
+                fetched += 1
+                if minutes is not None:
+                    tmdb_hits += 1
+                else:
+                    tmdb_misses += 1
+            except Exception:
+                tmdb_misses += 1
+
+        if minutes is None:
+            minutes = 115 if typ == "movie" else 45
+
+        total_min += int(minutes)
+
+    method = "tmdb" if tmdb_hits and not tmdb_misses else ("mixed" if tmdb_hits else "fallback")
+
+    watchtime = {
+        "movies": movies,
+        "shows": shows,
+        "minutes": total_min,
+        "hours": round(total_min / 60, 1),
+        "days": round(total_min / 60 / 24, 1),
+        "method": method
+    }
+
+    return JSONResponse({"series": series, "history": rows, "watchtime": watchtime})
+
+@app.get("/api/stats/raw")
+def api_stats_raw():
+    try:
+        from pathlib import Path
+        # same logic as Stats uses for its default path
+        root = Path(__file__).resolve().parent
+        base = Path("/config") if str(root).startswith("/app") else root
+        p = base / "statistics.json"
+        return JSONResponse(json.loads(p.read_text(encoding="utf-8")))
+    except Exception:
+        return JSONResponse({"ok": False}, status_code=404)
+    
 @app.on_event("shutdown")
 async def _on_shutdown():
     try:
@@ -800,11 +983,21 @@ async def cache_headers_for_api(request: Request, call_next):
 
 @app.get("/api/stats")
 def api_stats() -> Dict[str, Any]:
-    base = STATS.overview(_load_state())
+    # Persisted stats (from statistics.json)
+    base = STATS.overview(None)  # don't pass state here; use persisted file
+
+    # If a sync is actively running, override "now" with a LIVE UNION from state.json
     snap = _summary_snapshot() if callable(globals().get("_summary_snapshot", None)) else {}
-    live = snap.get("plex_post") or snap.get("simkl_post") or snap.get("plex_pre") or snap.get("simkl_pre")
-    if isinstance(live, int):
-        base["now"] = live
+    try:
+        if bool(snap.get("running")):
+            state = _load_state()
+            if state:
+                # compute union count across Plex ∪ SIMKL using the same canonicalizer as stats
+                base["now"] = len(Stats._union_keys(state))
+        # No “grace window” after finish; statistics.json is already refreshed at the end of the run
+    except Exception:
+        pass
+
     return base
 
 @app.get("/api/logs/stream")
@@ -879,11 +1072,6 @@ def api_watchlist_delete(key: str = FPath(...)) -> JSONResponse:
             result = {"ok": False, "error": "unexpected server response"}
 
         if result.get("ok"):
-            try:
-                STATS.record_event(action="remove", key=key, source="plex")
-            except Exception:
-                pass
-            # live adjust: remove key from in-memory state before refreshing stats
             try:
                 state = _load_state()
                 for side in ("plex", "simkl"):
@@ -1091,8 +1279,6 @@ def api_run_summary_stream() -> StreamingResponse:
                 yield f"data: {json.dumps(snap, separators=(',',':'))}\n\n"
     return StreamingResponse(gen(), media_type="text/event-stream")
 
-
-
 # ---- TMDb & wall ----
 @app.get("/api/state/wall")
 def api_state_wall() -> Dict[str, Any]:
@@ -1179,6 +1365,24 @@ def _safe_remove_path(p: Path) -> bool:
     except Exception:
         return False
 
+@app.post("/api/troubleshoot/reset-stats")
+def api_trbl_reset_stats() -> Dict[str, Any]:
+    try:
+        with STATS.lock:
+            # Reinitialize to known-good defaults
+            STATS.data = {
+                "events": [],
+                "samples": [],
+                "current": {},
+                "counters": {"added": 0, "removed": 0},
+                "last_run": {"added": 0, "removed": 0, "ts": 0},
+            }
+            STATS._save()
+        return {"ok": True}
+    except Exception as e:
+        # Return the error so the UI can display it
+        return {"ok": False, "error": str(e)}
+    
 @app.post("/api/troubleshoot/clear-cache")
 def api_trbl_clear_cache() -> Dict[str, Any]:
     """Delete contents of CACHE_DIR but keep the directory."""

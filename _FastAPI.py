@@ -1543,7 +1543,7 @@ main.single #stats-card{
       // "Version x.y.z" — from CURRENT
       const verEl = document.getElementById('about-version');
       if (verEl){
-        verEl.textContent = `Version ${cur}`;
+        verEl.textContent = `Version ${j.current}`;
         verEl.dataset.version = cur; // guard against later accidental overwrites
       }
 

@@ -1,32 +1,46 @@
-
 <p align="center">
-  <img src="images/screenshot%201-min.jpg" alt="Plex ⇄ SIMKL Watchlist Sync" width="600">
+  <img src="https://raw.githubusercontent.com/cenodude/Plex-SIMKL-Watchlist-Sync/main/images/1.jpg" 
+       alt="Plex ⇄ SIMKL Watchlist Sync" width="30%" style="max-width:300px;">
+  <img src="https://raw.githubusercontent.com/cenodude/Plex-SIMKL-Watchlist-Sync/main/images/Plex-SIMKL-Interface.png" 
+       alt="Plex ⇄ SIMKL Watchlist Sync" width="35%" style="max-width:300px;">
+  <img src="https://raw.githubusercontent.com/cenodude/Plex-SIMKL-Watchlist-Sync/main/images/2.jpg" 
+       alt="Plex ⇄ SIMKL Watchlist Sync" width="30%" style="max-width:300px;">
 </p>
+
+## Why I built this
+
+I use both **Plex** and **SIMKL** to track what I watch, but their watchlists are completely separate.  
+Adding a movie or show in one place doesn’t appear in the other, and keeping them in sync manually is a hassle.
+
+This project solves that by treating the two watchlists as **one connected system**:
+
+- Adding/removing in **Plex** automatically syncs to **SIMKL**.  
+- Adding/removing in **SIMKL** automatically syncs to **Plex**.  
+- The result is a single, unified watchlist that stays in sync automatically.
+
+It also works perfectly in combination with my other project:  
+👉 [plex-watchlist](https://github.com/cenodude/plex-watchlist) — which automatically removes movies/shows from your Plex Watchlist once you’ve watched them.  
+
+Together, the two tools make life much easier:  
+you get **one shared watchlist across Plex and SIMKL**, and it automatically **cleans itself up after you watch something**.  
 
 ## ✅ Features
 
-- **Two-way sync** between Plex and SIMKL.
-- **Clear modes**:
-  - **`two-way` (default)** — symmetric sync.  
-    - **First run:** *adds only* (seeds a local snapshot to avoid accidental deletes).  
-    - **Subsequent runs:** *adds and deletions* both ways, based on deltas vs the snapshot.
-  - **`mirror`** — make one side exactly match the other (adds + deletions) using `source_of_truth` (`plex` or `simkl`).
-- **Built-in SIMKL OAuth redirect helper** (`--init-simkl redirect`) to obtain tokens easily.
-- Helper script is included to fetch your **Plex Account token easily** (`plex_token_helper.py`).
-- **Web interface** for controlling sync operations, viewing progress, and managing your watchlist directly.
+- **Modern Web Interface**  
+  A sleek, easy-to-use dashboard to control sync operations, monitor live progress, and explore your unified watchlist.  
+  Designed to look great out of the box — no command line required.
 
----
+- **Two-way sync** between Plex and SIMKL  
+  Keep both watchlists in lockstep so you can add or remove items from either side.
 
-## 🧩 How it works
+- **Flexible sync modes**  
+  - **`two-way` (default)** — symmetric sync  
+    - **First run:** *adds only* (creates a local snapshot to avoid accidental deletions).  
+    - **Subsequent runs:** *adds and deletions* both ways, based on deltas vs the snapshot.  
+  - **`mirror`** — makes one side exactly match the other (adds + deletions) using `source_of_truth` (`plex` or `simkl`).
 
-1. Read Plex Watchlist.
-2. Build ID sets (IMDB/TMDB/TVDB/slug when available) for stable matching across both services.
-3. Compute differences with SIMKL.
-4. Apply changes based on your configured mode:
-   - **two-way (first run):** add-only on both sides, snapshot saved to `state.json`.
-   - **two-way (later runs):** add/remove in both directions using the snapshot to detect deltas.
-   - **mirror(plex):** make SIMKL exactly match Plex (add to SIMKL, remove from SIMKL).
-   - **mirror(simkl):** make Plex exactly match SIMKL (add/remove in Plex via `plexapi`).
+- **Built-in authentication modules**  
+  Seamless setup for **Plex**, **SIMKL**, and **TMDb** accounts.
 
 ---
 
@@ -176,44 +190,10 @@ docker run -d --name watchlist-sync   -p 8787:8787   -v "$PWD/config:/config"   
 
 If running manually (outside Docker), the **webapp.py** file is used to start the web interface:
 ```bash
-python /app/webapp.py
+python webapp.py
 ```
 
 This will start a FastAPI-based server, and you can access the web interface on **http://127.0.0.1:8787** by default.
-
----
-
-## ⚙️ Configuration (`config.json`)
-
-A starter file is created on first run:
-
-```json
-{
-  "plex": {
-    "account_token": ""          // REQUIRED: Your Plex *account* token (not a server token)
-  },
-  "simkl": {
-    "client_id": "",             // REQUIRED: SIMKL API Client ID (from creating an app in SIMKL)
-    "client_secret": "",         // REQUIRED: SIMKL API Client Secret
-    "access_token": "",          // Leave blank; script fills after OAuth
-    "refresh_token": "",         // Leave blank; script fills after OAuth
-    "token_expires_at": 0        // Leave as 0; script manages expiry time (unix epoch seconds)
-  },
-  "sync": {
-    "enable_add": true,          // Allow adding missing items
-    "enable_remove": true,       // Allow removing extras (used in mirror and two-way w/ deletions)
-    "verify_after_write": true,  // Re-read both sides after changes to confirm counts
-    "bidirectional": {
-      "enabled": true,           // Enable bi-directional sync
-      "mode": "two-way",         // "two-way" (union/adds; deletions when state exists) or "mirror"
-      "source_of_truth": "plex"  // Used only for "mirror": "plex" or "simkl"
-    }
-  },
-  "runtime": {
-    "debug": false               // Set true for verbose logs
-  }
-}
-```
 
 ---
 
@@ -232,44 +212,23 @@ A starter file is created on first run:
 
 This project requires a **Plex account token** (`plex.account_token`) stored in `config.json`.
 
-Run:
+Configure in the web interface or in CLI:
 
 ```bash
 python plex_token_helper.py --fetch
 ```
+---
+## 🎬 Getting a TMDb API key
+
+TMDb integration is **optional** but highly recommended.  
+It enriches the Web Interface with posters, genres, and descriptions for your watchlist items.
+
+This project requires a **TMDb API key** (`tmdb.api_key`) stored in `config.json`.
+
+Get your free key here:  
+👉 [TMDb API Settings](https://www.themoviedb.org/settings/api)*
 
 ---
-
-## 🖥️ Usage
-
-Show help (and all examples/flags):
-
-```bash
-./plex_simkl_watchlist_sync.py --help
-```
-
-### CLI flags
-
-```
---sync                         Run synchronization using config.json
---init-simkl redirect          Start local redirect helper for SIMKL OAuth
---bind HOST:PORT               Bind address for redirect helper (default 0.0.0.0:8787)
---open                         Try to open the SIMKL auth URL on this device
---plex-account-token TOKEN     Override Plex token from config.json for this run
---debug                        Verbose logging
---version                      Print script and plexapi versions
---reset-state                  Delete state.json (next --sync will re-seed safely)
-```
-
----
-
-## 🗃️ Files the script writes
-
-- `config.json` — your configuration + SIMKL tokens.
-- `state.json` — local snapshot that enables **real two-way deletions** on subsequent runs.
-
----
-
 ## 🛠️ Troubleshooting
 
 ### Out-of-sync or repeated `NOT EQUAL`
@@ -289,4 +248,4 @@ Issues and suggestions are welcome. When reporting problems, include:
 
 ## 🔒 Disclaimer
 
-This project is **community-made** and is **not affiliated with Plex or SIMKL**. Use it at your own risk.
+This project is **community-made** and is **not affiliated with Plex, SIMKL or TMDb**. Use it at your own risk.

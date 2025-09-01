@@ -973,10 +973,32 @@ main.single #stats-card{
 /* --- Insights styles --- */
 .stat-block { margin-top: 14px; padding: 12px; border-radius: 16px; background: rgba(255,255,255,0.03); box-shadow: 0 0 0 1px rgba(255,255,255,0.04) inset; }
 .stat-block-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:8px; }
-.pill { padding:3px 8px; border-radius:999px; font-size:12px; letter-spacing:.2px; background: linear-gradient(90deg,var(--grad1,#7c5cff),var(--grad2,#2de2ff)); -webkit-background-clip:text; -webkit-text-fill-color:transparent; font-weight:700; }
 .muted { opacity:.6; font-size:12px; }
 .ghost { background:transparent; border:none; color:inherit; opacity:.6; cursor:pointer; }
 .ghost:hover { opacity:1; }
+
+/* Base pill (used by posters, badges, etc.) — solid white text */
+.pill{
+  padding:3px 8px;
+  border-radius:999px;
+  font-size:12px;
+  font-weight:700;
+  background:rgba(0,0,0,.45);
+  border:1px solid rgba(255,255,255,.08);
+  color:#fff;
+  -webkit-text-fill-color:#fff; /* defeats any previous gradient text */
+  -webkit-background-clip: initial;
+}
+
+/* Insights-only: gradient text pills inside the stat blocks */
+.stat-block .pill{
+  background: linear-gradient(90deg,var(--grad1,#7c5cff),var(--grad2,#2de2ff));
+  -webkit-background-clip:text;
+  -webkit-text-fill-color:transparent;
+  border:0;                    /* no border for the label look */
+  background-color: transparent;
+  color: inherit;
+}
 
 /* Sparkline */
 .sparkline { height: 64px; width: 100%; position: relative; }
@@ -1024,6 +1046,66 @@ main.single #stats-card{
   text-align: center;     /* center align */
   max-width: 7ch;   /* fits up to 5 characters + spacing */
 }
+
+/* Badge pill */
+.cw-badge {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  padding: .35rem .75rem;
+  border-radius: 999px;
+  font-weight: 700;
+  font-size: .72rem;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  line-height: 1;
+  color: #fff;                /* force white text */
+  z-index: 2;                 /* above the glass */
+  mix-blend-mode: normal;     /* don't blend away the text */
+  -webkit-text-fill-color: #fff; /* defeats gradient-text leaks */
+}
+
+/* Glass background lives on a pseudo element (so the text isn't blurred) */
+.cw-badge::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(180deg, rgba(255,255,255,.08), rgba(0,0,0,.20));
+  box-shadow:
+    inset 0 0 0 1px rgba(80, 255, 190, .35); /* tweak per status color */
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  z-index: -1; /* behind the text */
+}
+
+/* Insights-only pill label (keeps poster pills unaffected) */
+.stat-block .pill:not(.plain) {
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  letter-spacing: .2px;
+  background: linear-gradient(90deg,var(--grad1,#7c5cff),var(--grad2,#2de2ff));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  font-weight: 700;
+}
+
+/* If a global .brand-grad or similar hits text, neutralize it inside badges */
+.cw-badge, .cw-badge * {
+  background: none !important;
+  -webkit-background-clip: initial !important;
+  background-clip: initial !important;
+  -webkit-text-fill-color: #fff !important;
+  color: #fff !important;
+  filter: none !important;
+}
+
+/* Optional: status accent rings */
+.cw-badge--synced::before  { box-shadow: inset 0 0 0 1px rgba(46, 255, 150, .45); }
+.cw-badge--deleted::before { box-shadow: inset 0 0 0 1px rgba(255, 82, 82, .45); }
+.cw-badge--plex::before    { box-shadow: inset 0 0 0 1px rgba(255, 179, 0, .45); }
+.cw-badge--simkl::before   { box-shadow: inset 0 0 0 1px rgba(70, 195, 255, .45); }
 
 </style>
 
@@ -1310,7 +1392,7 @@ main.single #stats-card{
             </div>
             <div style="display:flex;gap:8px">
               <button class="btn" onclick="requestPlexPin()">Request Token</button>
-              <div style="align-self:center;color:var(--muted)">Opens plex.tv/link (PIN copied to clipboard)</div>
+              <div style="align-self:center;color:var(--muted)">Opens plex.tv/link</div>
             </div>
 
             <div id="plex_msg" class="msg ok hidden">Successfully retrieved token</div>
@@ -2695,17 +2777,43 @@ document.addEventListener('DOMContentLoaded', () => {
     const row = document.getElementById('poster-row');
     msg.textContent = 'Loading…'; row.innerHTML = ''; row.classList.add('hidden'); card.classList.remove('hidden');
 
-    const hidden = new Set((()=>{ try { return JSON.parse(localStorage.getItem('wl_hidden') || '[]'); } catch { return []; } })());
-    const isDeleted = (k) => hidden.has(k) || (window._deletedKeys && window._deletedKeys.has(k));
+    const hiddenMap = new Map(
+      (JSON.parse(localStorage.getItem('wl_hidden') || '[]') || []).map(k => [k, true])
+    );
+    const isLocallyHidden = (k) => hiddenMap.has(k);
+
+    const isDeleted = (item) => {
+      if (isLocallyHidden(item.key) && item.status === 'deleted') return true;
+      if (isLocallyHidden(item.key) && item.status !== 'deleted') {
+        hiddenMap.delete(item.key);
+        localStorage.setItem('wl_hidden', JSON.stringify([...hiddenMap.keys()]));
+      }
+      return (window._deletedKeys && window._deletedKeys.has(item.key)) || false;
+    };
 
     try {
       const data = await fetch('/api/state/wall').then(r => r.json());
       if (data.missing_tmdb_key) { card.classList.add('hidden'); return; }
       if (!data.ok) { msg.textContent = data.error || 'No state data found.'; return; }
-      const items = data.items || [];
+      let items = data.items || [];
       _lastSyncEpoch = data.last_sync_epoch || null;
       if (items.length === 0) { msg.textContent = 'No items to show yet.'; return; }
       msg.classList.add('hidden'); row.classList.remove('hidden');
+
+      const firstSeen = (() => { try { return JSON.parse(localStorage.getItem('wl_first_seen') || '{}'); } catch { return {}; } })();
+      const getTs = (it) => {
+        const s =
+          it.added_epoch ?? it.added_ts ?? it.created_ts ?? it.created ?? it.epoch ?? null;
+        return Number(s || firstSeen[it.key] || 0);
+      };
+
+      const now = Date.now();
+      for (const it of items) {
+        if (!firstSeen[it.key]) firstSeen[it.key] = now;
+      }
+      localStorage.setItem('wl_first_seen', JSON.stringify(firstSeen));
+
+      items = items.slice().sort((a, b) => getTs(b) - getTs(a));
 
       for (const it of items) {
         if (!it.tmdb) continue;
@@ -2713,7 +2821,7 @@ document.addEventListener('DOMContentLoaded', () => {
         a.className = 'poster';
         a.href = `https://www.themoviedb.org/${it.type}/${it.tmdb}`; a.target = '_blank'; a.rel = 'noopener';
         a.dataset.type = it.type; a.dataset.tmdb = String(it.tmdb); a.dataset.key = it.key || '';
-        const uiStatus = isDeleted(it.key) ? 'deleted' : it.status; a.dataset.source = uiStatus;
+        const uiStatus = isDeleted(it) ? 'deleted' : it.status; a.dataset.source = uiStatus;
 
         const img = document.createElement('img');
         img.loading = 'lazy'; img.alt = `${it.title || ''} (${it.year || ''})`; img.src = artUrl(it, 'w342'); a.appendChild(img);
@@ -2755,6 +2863,7 @@ document.addEventListener('DOMContentLoaded', () => {
       initWallInteractions();
     } catch { msg.textContent = 'Failed to load preview.'; }
   }
+
 
   async function loadWatchlist() {
     const grid = document.getElementById('wl-grid');
@@ -2803,10 +2912,14 @@ document.addEventListener('DOMContentLoaded', () => {
             <div class="desc" id="wldesc-${node.dataset.type}-${node.dataset.tmdb}">${it.tmdb ? 'Fetching description…' : '—'}</div>
           </div>`;
 
-
         const hidden = new Set(JSON.parse(localStorage.getItem('wl_hidden') || '[]'));
         if (hidden.has(it.key)) {
-          const pill = node.querySelector('.pill'); pill.textContent = 'DELETED'; pill.classList.add('p-del');
+          const pill = node.querySelector('.pill');
+          // Instead of forcing DELETED, mark visually
+          pill.classList.add('p-del');
+          // keep original text (SYNCED, PLEX, SIMKL, …)
+          // or optionally append marker
+          // pill.textContent = pill.textContent + ' (hidden)';
         }
 
         node.addEventListener('mouseenter', async () => {

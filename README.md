@@ -4,6 +4,23 @@
   <img src="images/2.jpg" alt="Plex ⇄ SIMKL Watchlist Sync" width="30%" style="max-width:300px;">
 </p>
 
+## Why I built this
+
+I use both **Plex** and **SIMKL** to track what I watch, but their watchlists are completely separate.  
+Adding a movie or show in one place doesn’t appear in the other, and keeping them in sync manually is a hassle.
+
+This project solves that by treating the two watchlists as **one connected system**:
+
+- Adding/removing in **Plex** automatically syncs to **SIMKL**.  
+- Adding/removing in **SIMKL** automatically syncs to **Plex**.  
+- The result is a single, unified watchlist that stays in sync automatically.
+
+It also works perfectly in combination with my other project:  
+👉 [plex-watchlist](https://github.com/cenodude/plex-watchlist) — which automatically removes movies/shows from your Plex Watchlist once you’ve watched them.  
+
+Together, the two tools make life much easier:  
+you get **one shared watchlist across Plex and SIMKL**, and it automatically **cleans itself up after you watch something**.  
+
 ## ✅ Features
 
 - **Two-way sync** between Plex and SIMKL.

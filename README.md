@@ -23,28 +23,24 @@ you get **one shared watchlist across Plex and SIMKL**, and it automatically **c
 
 ## ✅ Features
 
-- **Two-way sync** between Plex and SIMKL.
-- **Clear modes**:
-  - **`two-way` (default)** — symmetric sync.  
-    - **First run:** *adds only* (seeds a local snapshot to avoid accidental deletes).  
-    - **Subsequent runs:** *adds and deletions* both ways, based on deltas vs the snapshot.
-  - **`mirror`** — make one side exactly match the other (adds + deletions) using `source_of_truth` (`plex` or `simkl`).
-- **Built-in SIMKL OAuth redirect helper** (`--init-simkl redirect`) to obtain tokens easily.
-- Helper script is included to fetch your **Plex Account token easily** (`plex_token_helper.py`).
-- **Web interface** for controlling sync operations, viewing progress, and managing your watchlist directly.
+- **Modern Web Interface**  
+  A sleek, easy-to-use dashboard to control sync operations, monitor live progress, and explore your unified watchlist.  
+  Designed to look great out of the box — no command line required.
 
----
+- **Two-way sync** between Plex and SIMKL  
+  Keep both watchlists in lockstep so you can add or remove items from either side.
 
-## 🧩 How it works
+- **Flexible sync modes**  
+  - **`two-way` (default)** — symmetric sync  
+    - **First run:** *adds only* (creates a local snapshot to avoid accidental deletions).  
+    - **Subsequent runs:** *adds and deletions* both ways, based on deltas vs the snapshot.  
+  - **`mirror`** — makes one side exactly match the other (adds + deletions) using `source_of_truth` (`plex` or `simkl`).
 
-1. Read Plex Watchlist.
-2. Build ID sets (IMDB/TMDB/TVDB/slug when available) for stable matching across both services.
-3. Compute differences with SIMKL.
-4. Apply changes based on your configured mode:
-   - **two-way (first run):** add-only on both sides, snapshot saved to `state.json`.
-   - **two-way (later runs):** add/remove in both directions using the snapshot to detect deltas.
-   - **mirror(plex):** make SIMKL exactly match Plex (add to SIMKL, remove from SIMKL).
-   - **mirror(simkl):** make Plex exactly match SIMKL (add/remove in Plex via `plexapi`).
+- **Built-in authentication modules**  
+  Seamless setup for **Plex**, **SIMKL**, and **TMDb** accounts.
+
+- **Perfect combo with [plex-watchlist](https://github.com/cenodude/plex-watchlist)**  
+  Automatically cleans up your Plex Watchlist once items are watched — leaving you with a single, unified watchlist across Plex and SIMKL that also stays tidy without manual effort.
 
 ---
 

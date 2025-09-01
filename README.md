@@ -190,7 +190,7 @@ docker run -d --name watchlist-sync   -p 8787:8787   -v "$PWD/config:/config"   
 
 If running manually (outside Docker), the **webapp.py** file is used to start the web interface:
 ```bash
-python /app/webapp.py
+python webapp.py
 ```
 
 This will start a FastAPI-based server, and you can access the web interface on **http://127.0.0.1:8787** by default.

@@ -1,6 +1,6 @@
 <p align="center">
   <img src="images/1.jpg" alt="Plex ⇄ SIMKL Watchlist Sync" width="30%" style="max-width:300px;">
-  <img src="images/Plex-SIMKL-Interface.png" alt="Plex ⇄ SIMKL Watchlist Sync" width="30%" style="max-width:300px;">
+  <img src="images/Plex-SIMKL-Interface.png" alt="Plex ⇄ SIMKL Watchlist Sync" width="50%" style="max-width:300px;">
   <img src="images/2.jpg" alt="Plex ⇄ SIMKL Watchlist Sync" width="30%" style="max-width:300px;">
 </p>
 

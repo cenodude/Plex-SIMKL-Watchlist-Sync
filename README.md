@@ -39,9 +39,6 @@ you get **one shared watchlist across Plex and SIMKL**, and it automatically **c
 - **Built-in authentication modules**  
   Seamless setup for **Plex**, **SIMKL**, and **TMDb** accounts.
 
-- **Perfect combo with [plex-watchlist](https://github.com/cenodude/plex-watchlist)**  
-  Automatically cleans up your Plex Watchlist once items are watched — leaving you with a single, unified watchlist across Plex and SIMKL that also stays tidy without manual effort.
-
 ---
 
 ## 🚀 Getting Started

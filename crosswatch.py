@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Web UI backend (FastAPI) for Plex ⇄ SIMKL Watchlist Sync
+Web UI backend (FastAPI)
 """
 import requests
 import json

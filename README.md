@@ -1,7 +1,10 @@
 <p align="center">
-  <img src="images/1.jpg" alt="Plex ⇄ SIMKL Watchlist Sync" width="30%" style="max-width:300px;">
-  <img src="images/Plex-SIMKL-Interface.png" alt="Plex ⇄ SIMKL Watchlist Sync" width="35%" style="max-width:300px;">
-  <img src="images/2.jpg" alt="Plex ⇄ SIMKL Watchlist Sync" width="30%" style="max-width:300px;">
+  <img src="https://raw.githubusercontent.com/cenodude/Plex-SIMKL-Watchlist-Sync/main/images/1.jpg" 
+       alt="Plex ⇄ SIMKL Watchlist Sync" width="30%" style="max-width:300px;">
+  <img src="https://raw.githubusercontent.com/cenodude/Plex-SIMKL-Watchlist-Sync/main/images/Plex-SIMKL-Interface.png" 
+       alt="Plex ⇄ SIMKL Watchlist Sync" width="35%" style="max-width:300px;">
+  <img src="https://raw.githubusercontent.com/cenodude/Plex-SIMKL-Watchlist-Sync/main/images/2.jpg" 
+       alt="Plex ⇄ SIMKL Watchlist Sync" width="30%" style="max-width:300px;">
 </p>
 
 ## Why I built this

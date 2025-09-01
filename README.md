@@ -197,40 +197,6 @@ This will start a FastAPI-based server, and you can access the web interface on 
 
 ---
 
-## ⚙️ Configuration (`config.json`)
-
-A starter file is created on first run:
-
-```json
-{
-  "plex": {
-    "account_token": ""          // REQUIRED: Your Plex *account* token (not a server token)
-  },
-  "simkl": {
-    "client_id": "",             // REQUIRED: SIMKL API Client ID (from creating an app in SIMKL)
-    "client_secret": "",         // REQUIRED: SIMKL API Client Secret
-    "access_token": "",          // Leave blank; script fills after OAuth
-    "refresh_token": "",         // Leave blank; script fills after OAuth
-    "token_expires_at": 0        // Leave as 0; script manages expiry time (unix epoch seconds)
-  },
-  "sync": {
-    "enable_add": true,          // Allow adding missing items
-    "enable_remove": true,       // Allow removing extras (used in mirror and two-way w/ deletions)
-    "verify_after_write": true,  // Re-read both sides after changes to confirm counts
-    "bidirectional": {
-      "enabled": true,           // Enable bi-directional sync
-      "mode": "two-way",         // "two-way" (union/adds; deletions when state exists) or "mirror"
-      "source_of_truth": "plex"  // Used only for "mirror": "plex" or "simkl"
-    }
-  },
-  "runtime": {
-    "debug": false               // Set true for verbose logs
-  }
-}
-```
-
----
-
 ## 🔐 SIMKL APP
 
 ### 1) Create your SIMKL app
@@ -253,6 +219,13 @@ python plex_token_helper.py --fetch
 ```
 
 ---
+ **TMDb Integration (optional, but highly recommended)**  
+ Enrich your watchlist preview with beautiful posters, titles, genres, and descriptions powered by [TMDb](https://www.themoviedb.org/).  
+When enabled, the Web Interface becomes a vibrant, poster-driven gallery that makes browsing your Plex ⇄ SIMKL watchlist a joy.  
+
+  👉 Get your free API key here: [TMDb API Settings](https://www.themoviedb.org/settings/api)  
+  *(This product uses the TMDb API but is not endorsed or certified by TMDb.)*
+
 
 ## 🖥️ Usage
 

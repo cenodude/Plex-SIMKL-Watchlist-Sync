@@ -22,6 +22,7 @@ COPY _FastAPI.py /app/
 COPY _scheduling.py /app/
 COPY _TMDB.py /app/
 COPY _watchlist.py /app/
+COPY _statistics.py /app/
 
 # Python dependencies
 RUN pip install --no-cache-dir --upgrade pip \

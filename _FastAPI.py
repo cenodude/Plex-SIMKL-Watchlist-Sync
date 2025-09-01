@@ -58,20 +58,20 @@ def get_index_html() -> str:
   /* Versioning pill */
   .hidden{ display:none }
 
-  /* Sticky right meta card — push it down a bit */
+  /* Sticky right meta card  */
   .det-right{
     position: sticky;
-    top: 100px;
+    top: 64px;  /* below header */
     align-self: start;
-    margin-top: 8px;  /* extra initial offset in normal flow */
+    margin-top: 20px;  /* extra initial offset in normal flow */
   }
 
   .meta-card{
-    background: #0a0a17;
-    border: 1px solid var(--border);
-    border-radius: 14px;
-    padding: 12px;
-    box-shadow: 0 0 22px rgba(0,0,0,.25) inset;
+    background:linear-gradient(180deg,rgba(255,255,255,.02),transparent),var(--panel);
+    border:1px solid var(--border);
+    border-radius:14px;
+    padding:12px;
+    box-shadow:0 0 40px #000 inset;
   }
 
   .meta-grid{
@@ -171,7 +171,9 @@ def get_index_html() -> str:
   }
   main.full{grid-template-columns:1fr}
   main.single{grid-template-columns:1fr}
-  #ops-card{grid-column:1} #placeholder-card{grid-column:1} #log-panel{grid-column:2; align-self:start}
+  #ops-card{grid-column:1}
+  #placeholder-card{grid-column:1 / -1}   /* span full width */
+  #log-panel{grid-column:2; align-self:start}
   #ops-card .chiprow{ margin-bottom: 20px; }
   #ops-card .sep{ margin: 6px 0 16px; }
   #ops-card .action-row{ margin-top: 0; }
@@ -234,7 +236,17 @@ def get_index_html() -> str:
   .stepper{display:flex;gap:12px;align-items:center;margin:0}
   .step{display:flex;align-items:center;gap:6px;color:var(--muted);font-size:12px}
   .tl-dot{width:10px;height:10px;border-radius:50%;background:#333}.tl-dot.on{background:#7c5cff;box-shadow:0 0 10px var(--glow)}
-  .details{border:1px dashed #2a2a3a;border-radius:12px;padding:10px;margin-top:10px;background:#0a0a17}
+
+  /* Sync output panel — match .card neon */
+  .details{
+    border:1px solid var(--border);
+    border-radius:20px;
+    padding:16px;
+    margin-top:10px;
+    background:linear-gradient(180deg,rgba(255,255,255,.02),transparent),var(--panel);
+    box-shadow:0 0 40px #000 inset;
+  }
+
   .log{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;background:#05060b;border-radius:14px;border:1px solid var(--border);padding:12px;min-height:160px;max-height:50vh;overflow:auto;white-space:pre-wrap}
 
   .msg{border:1px solid transparent;border-radius:12px;padding:8px 12px;margin-top:8px;font-weight:650}
@@ -250,6 +262,45 @@ def get_index_html() -> str:
   .footer .btn:hover{filter:brightness(1.07);box-shadow:0 0 22px #7c5cff66}
   .footer .btn:active{transform:translateY(1px)}
   #save_msg{margin-left:8px}
+
+  /* Log panel */
+  #det-log{
+    height: 10vh;          /* vast */
+    min-height: 180px;
+    max-height: 10vh;
+    scrollbar-width: thin;                 /* Firefox */
+    scrollbar-color: #6a67ff #0b0b16;      /* thumb / track */
+  }
+  #det-log::-webkit-scrollbar{ width:12px; }                    /* Chrome/Edge */
+  #det-log::-webkit-scrollbar-track{
+    background:#0b0b16;
+    border-left:1px solid var(--border);
+    border-radius:10px;
+  }
+  #det-log::-webkit-scrollbar-thumb{
+    background:linear-gradient(180deg,#7c5cff66,#00b7eb66);
+    border:1px solid #ffffff20;
+    border-radius:10px;
+  }
+  #det-log::-webkit-scrollbar-thumb:hover{
+    background:linear-gradient(180deg,#9f97ff88,#24c8ff88);
+  }
+
+  .log-scrub input[type="range"]{
+    -webkit-appearance:none; appearance:none;
+    width:100%; height:4px; border-radius:999px; outline:none;
+    background:linear-gradient(90deg,#3d38ff33,#00b7eb33);
+  }
+  .log-scrub input[type="range"]::-webkit-slider-thumb{
+    -webkit-appearance:none; appearance:none;
+    width:16px; height:16px; border-radius:50%;
+    background:#fff; border:1px solid #ffffff22; box-shadow:0 0 10px var(--glow);
+  }
+  .log-scrub input[type="range"]::-moz-range-thumb{
+    width:16px; height:16px; border-radius:50%;
+    background:#fff; border:1px solid #ffffff22; box-shadow:0 0 10px var(--glow);
+  }
+
 
   /* Watchlist grid */
   .wl-grid{
@@ -687,9 +738,66 @@ def get_index_html() -> str:
   background: rgba(1,210,119,.10);
 }
 
+/* Remove horizontal scrollbar in the details log */
+#det-log{
+  overflow-x: hidden;     /* hide horizontal bar */
+  overflow-y: auto;       /* keep vertical scroll */
+  white-space: pre-wrap;  /* wrap lines (already set on .log, keep it) */
+  overflow-wrap: anywhere;/* break very long tokens/URLs */
+  word-break: break-word; /* fallback for older browsers */
+}
+
+/* ANSI styles for the log */
+.log .b { font-weight: 700; }
+.log .u { text-decoration: underline; }
+
+/* 8 basic + 8 bright foregrounds */
+.log .c30{ color:#6e7681 } .log .c31{ color:#ff7b72 } .log .c32{ color:#3fb950 } .log .c33{ color:#d29922 }
+.log .c34{ color:#58a6ff } .log .c35{ color:#bc8cff } .log .c36{ color:#76e3ea } .log .c37{ color:#f0f6fc }
+.log .c90{ color:#8b949e } .log .c91{ color:#ff7b72 } .log .c92{ color:#3fb950 } .log .c93{ color:#d29922 }
+.log .c94{ color:#58a6ff } .log .c95{ color:#bc8cff } .log .c96{ color:#76e3ea } .log .c97{ color:#ffffff }
+
+.log .bg40{ background:rgba(110,118,129,.15) } .log .bg41{ background:rgba(255,123,114,.15) }
+.log .bg42{ background:rgba(63,185,80,.15) }  .log .bg43{ background:rgba(210,153,34,.15) }
+.log .bg44{ background:rgba(88,166,255,.15) } .log .bg45{ background:rgba(188,140,255,.15) }
+.log .bg46{ background:rgba(118,227,234,.15) } .log .bg47{ background:rgba(240,246,252,.15) }
+.log .bg100{ background:rgba(139,148,158,.20) } .log .bg101{ background:rgba(255,123,114,.22) }
+.log .bg102{ background:rgba(63,185,80,.22) }  .log .bg103{ background:rgba(210,153,34,.22) }
+.log .bg104{ background:rgba(88,166,255,.22) } .log .bg105{ background:rgba(188,140,255,.22) }
+.log .bg106{ background:rgba(118,227,234,.22) } .log .bg107{ background:rgba(255,255,255,.22) }
+
+/* Statistics — neon panel */
+#stats-card{
+  position:relative;
+  border:1px solid var(--border);
+  border-radius:20px;
+  padding:16px;
+  background:linear-gradient(180deg,rgba(255,255,255,.02),transparent),var(--panel);
+  box-shadow:0 0 40px #000 inset;
+}
+#stats-card .title{margin-bottom:10px}
+
+/* Chart (keep as-is) */
+.stats-chart{position:relative;border:1px solid var(--border);border-radius:12px;height:120px;padding:8px;background:#0a0a17;overflow:hidden}
+.stats-chart::before{content:"";position:absolute;inset:0;background:
+  repeating-linear-gradient(to bottom, rgba(255,255,255,.06) 0 1px, transparent 1px 20px);pointer-events:none}
+.stats-chart::after{content:"";position:absolute;inset:-20% 0;background:
+  radial-gradient(120px 60px at -10% 50%,rgba(124,92,255,.10),transparent 60%),
+  radial-gradient(120px 60px at 110% 50%,rgba(0,183,235,.10),transparent 60%);
+  filter:blur(8px);animation:statsGlow 10s ease-in-out infinite alternate;pointer-events:none}
+@keyframes statsGlow{from{transform:translateX(-2%)}to{transform:translateX(2%)}}
+
+/* place next to Synchronization */
+#stats-card{ grid-column:2; align-self:start; }
+
+/* fall back to single column */
+main.full #stats-card,
+main.single #stats-card{ grid-column:1; }
+
 </style>
 
 </head><body>
+
 <header>
   <div class="brand">
     <svg class="logo" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-label="Plex ⇄ SIMKL Watchlist Sync">
@@ -793,6 +901,30 @@ def get_index_html() -> str:
       </div>
     </div>
   </section>
+
+  <!-- MAIN: Statistics card -->
+  <section id="stats-card" class="card hidden">
+    <div class="title">Statistics</div>
+
+    <div class="stats-wrap">
+      <div class="metric now">
+        <div class="label">Now</div>
+        <div class="value" id="stat-now" data-v="0">0</div>
+        <div class="chip trend flat" id="trend-week">no change</div>
+      </div>
+
+      <div class="mini">
+        <div class="metric">
+          <div class="label">Last Week</div>
+          <div class="value small" id="stat-week" data-v="0">0</div>
+        </div>
+        <div class="metric">
+          <div class="label">Last Month</div>
+          <div class="value small" id="stat-month" data-v="0">0</div>
+        </div>
+
+  </section>
+
 
   <!-- MAIN: Poster carousel -->
   <section id="placeholder-card" class="card hidden">
@@ -1038,6 +1170,7 @@ def get_index_html() -> str:
   const STATUS_MIN_INTERVAL = 120000; // ms
 
   let busy=false, esDet=null, esSum=null, plexPoll=null, simklPoll=null, appDebug=false, currentSummary=null;
+  let detStickBottom = true;  // auto-stick to bottom voor details-log
   let wallLoaded=false, _lastSyncEpoch=null, _wasRunning=false;
   window._ui = { status: null, summary: null };
 
@@ -1147,39 +1280,37 @@ def get_index_html() -> str:
     const pageWatchlist = document.getElementById('page-watchlist');
     const logPanel      = document.getElementById('log-panel');
     const layout        = document.getElementById('layout');
+    const statsCard     = document.getElementById('stats-card');
 
-    // Active tabs (About is a modal → do NOT toggle here)
     document.getElementById('tab-main')     ?.classList.toggle('active', n === 'main');
     document.getElementById('tab-watchlist')?.classList.toggle('active', n === 'watchlist');
     document.getElementById('tab-settings') ?.classList.toggle('active', n === 'settings');
 
-    // Page visibility (About is a modal → do NOT touch it here)
-    document.getElementById('ops-card')       ?.classList.toggle('hidden', n !== 'main');
+    document.getElementById('ops-card')        ?.classList.toggle('hidden', n !== 'main');
     document.getElementById('placeholder-card')?.classList.toggle('hidden', n !== 'main');
+    statsCard                                   ?.classList.toggle('hidden', n !== 'main');
     pageWatchlist?.classList.toggle('hidden', n !== 'watchlist');
     pageSettings ?.classList.toggle('hidden', n !== 'settings');
 
+    const hasStats = !!(statsCard && !statsCard.classList.contains('hidden'));
     if (n === 'main') {
       layout.classList.remove('single');
+      layout.classList.toggle('full', !appDebug && !hasStats);
       refreshStatus();
-      layout.classList.toggle('full', !appDebug);
-      if (!esSum) { openSummaryStream(); }
+      if (!esSum) openSummaryStream();
       await updatePreviewVisibility();
       refreshSchedulingBanner();
-    } else if (n === 'watchlist') {
+      refreshStats(true);
+    } else {
       layout.classList.add('single');
       layout.classList.remove('full');
       logPanel.classList.add('hidden');
-      loadWatchlist();
-    } else { // settings
-      layout.classList.add('single');
-      layout.classList.remove('full');
-      logPanel.classList.add('hidden');
-      document.getElementById('sec-auth')?.classList.add('open');
-      await loadConfig();
-      updateTmdbHint?.(); updateSimklHint?.(); updateSimklButtonState?.(); loadScheduling?.();
+      if (n === 'watchlist') { loadWatchlist(); }
+      else { document.getElementById('sec-auth')?.classList.add('open'); await loadConfig();
+            updateTmdbHint?.(); updateSimklHint?.(); updateSimklButtonState?.(); loadScheduling?.(); }
     }
   }
+
 
 
   function toggleSection(id){ document.getElementById(id).classList.toggle('open'); }
@@ -1290,7 +1421,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // });
 });
 
-  // tiny toast you already have styling for messages; here's a quick helper
+  // tiny toast 
   function showToast(text, onClick){
     const toast = document.createElement('div');
     toast.className = 'msg ok';
@@ -1375,19 +1506,164 @@ document.addEventListener('DOMContentLoaded', () => {
     fetch('/api/run/summary').then(r=>r.json()).then(renderSummary).catch(()=>{});
   }
 
+    let _lastStatsFetch = 0;
+
+    function _ease(t){ return t<.5 ? 2*t*t : -1+(4-2*t)*t; }
+    function animateNumber(el,to){
+      const from = parseInt(el.dataset.v||'0',10)||0;
+      if(from===to){ el.textContent=String(to); el.dataset.v=String(to); return; }
+      const dur=600, t0=performance.now();
+      function step(now){
+        const p=Math.min(1,(now-t0)/dur), v=Math.round(from+(to-from)*_ease(p));
+        el.textContent=String(v);
+        if(p<1) requestAnimationFrame(step); else el.dataset.v=String(to);
+      }
+      requestAnimationFrame(step);
+    }
+
+    function animateChart(now,week,month){
+      const bars={
+        now:document.querySelector('.bar.now'),
+        week:document.querySelector('.bar.week'),
+        month:document.querySelector('.bar.month'),
+      };
+      const max=Math.max(1,now,week,month);
+      const h=v=>Math.max(.04,v/max);
+      if(bars.week)  bars.week.style.transform  = `scaleY(${h(week)})`;
+      if(bars.month) bars.month.style.transform = `scaleY(${h(month)})`;
+      if(bars.now)   bars.now.style.transform   = `scaleY(${h(now)})`;
+    }
+
+    async function refreshStats(force=false){
+      const nowT=Date.now();
+      if(!force && nowT-_lastStatsFetch<900) return;
+      _lastStatsFetch=nowT;
+      try{
+        const j=await fetch('/api/stats',{cache:'no-store'}).then(r=>r.json());
+        if(!j?.ok) return;
+        const elNow=document.getElementById('stat-now');
+        const elW=document.getElementById('stat-week');
+        const elM=document.getElementById('stat-month');
+        if(!elNow||!elW||!elM) return;
+
+        const n=j.now|0, w=j.week|0, m=j.month|0;
+        animateNumber(elNow,n);
+        animateNumber(elW,w);
+        animateNumber(elM,m);
+        animateChart(n,w,m);
+
+        const dW=n-w, t=document.getElementById('trend-week');
+        if(t){
+          const cls=dW>0?'up':(dW<0?'down':'flat');
+          t.className='chip trend '+cls;
+          t.textContent=dW===0?'no change':((dW>0?'+':'')+dW+' vs last week');
+          if(cls==='up'){ const card=document.getElementById('stats-card'); card?.classList.add('celebrate'); setTimeout(()=>card?.classList.remove('celebrate'),800); }
+        }
+      }catch(_){}
+    }
+    
+    function _setBarValues(n,w,m){
+      const bw=document.querySelector('.bar.week');
+      const bm=document.querySelector('.bar.month');
+      const bn=document.querySelector('.bar.now');
+      if(bw) bw.dataset.v = String(w);
+      if(bm) bm.dataset.v = String(m);
+      if(bn) bn.dataset.v = String(n);
+    }
+
+    function _initStatsTooltip(){
+      const chart = document.getElementById('stats-chart');
+      const tip   = document.getElementById('stats-tip');
+      if(!chart || !tip) return;
+
+      const map = [
+        {el: document.querySelector('.bar.week'),  label: 'Last Week'},
+        {el: document.querySelector('.bar.month'), label: 'Last Month'},
+        {el: document.querySelector('.bar.now'),   label: 'Now'},
+      ];
+
+      function show(e, label, value){
+        tip.textContent = `${label}: ${value} items`;
+        tip.style.left = e.offsetX + 'px';
+        tip.style.top  = e.offsetY + 'px';
+        tip.classList.add('show'); tip.hidden = false;
+      }
+      function hide(){ tip.classList.remove('show'); tip.hidden = true; }
+
+      map.forEach(({el,label})=>{
+        if(!el) return;
+        el.addEventListener('mousemove', (ev)=>{
+          const rect = chart.getBoundingClientRect();
+          const x = ev.clientX - rect.left, y = ev.clientY - rect.top;
+          show({offsetX:x,offsetY:y}, label, el.dataset.v || '0');
+        });
+        el.addEventListener('mouseleave', hide);
+        el.addEventListener('touchstart', (ev)=>{
+          const t = ev.touches[0];
+          const rect = chart.getBoundingClientRect();
+          show({offsetX:t.clientX-rect.left, offsetY:t.clientY-rect.top}, label, el.dataset.v || '0');
+        }, {passive:true});
+        el.addEventListener('touchend', ()=>{ tip.classList.remove('show'); }, {passive:true});
+      });
+    }
+
+    // Call once on boot
+    document.addEventListener('DOMContentLoaded', _initStatsTooltip);
+
+    // In your refreshStats(), after computing n,w,m and calling animateNumber/animateChart, add:
+    // _setBarValues(n,w,m);
+
+  // Call at boot
+  document.addEventListener('DOMContentLoaded', () => { refreshStats(true); });
+
+  // Nudge the stats whenever the summary updates or a run finishes
+  const _origRenderSummary = (typeof renderSummary === 'function') ? renderSummary : null;
+  window.renderSummary = function(sum){
+    if (_origRenderSummary) _origRenderSummary(sum);
+    refreshStats(false);
+  };
+
+
   function openDetailsLog(){
     const el = document.getElementById('det-log');
+    const slider = document.getElementById('det-scrub');
     if (!el) return;
     el.innerHTML = '';
-    if (esDet) { esDet.close(); esDet = null; }
+    detStickBottom = true;
+    if (esDet) { try{ esDet.close(); }catch(_){} esDet = null; }
+
+    const updateSlider = () => {
+      if (!slider) return;
+      const max = el.scrollHeight - el.clientHeight;
+      slider.value = max <= 0 ? 100 : Math.round((el.scrollTop / max) * 100);
+    };
+    const updateStick = () => {
+      const pad = 6; // tolerantierandje
+      detStickBottom = (el.scrollTop >= (el.scrollHeight - el.clientHeight - pad));
+
+    };
+
+    el.addEventListener('scroll', () => { updateSlider(); updateStick(); }, { passive:true });
+    if (slider){
+      slider.addEventListener('input', () => {
+        const max = el.scrollHeight - el.clientHeight;
+        el.scrollTop = Math.round((slider.value/100) * max);
+        detStickBottom = (slider.value >= 99);
+      });
+    }
+
     esDet = new EventSource('/api/logs/stream?tag=SYNC');
     esDet.onmessage = (ev) => {
       if (!ev?.data) return;
       el.insertAdjacentHTML('beforeend', ev.data + '<br>');
-      el.scrollTop = el.scrollHeight;
+      if (detStickBottom) el.scrollTop = el.scrollHeight;
+      updateSlider();
     };
+
     esDet.onerror = () => { try { esDet?.close(); } catch(_){} esDet = null; };
+    requestAnimationFrame(() => { el.scrollTop = el.scrollHeight; updateSlider(); });
   }
+
   function closeDetailsLog(){ try { esDet?.close(); } catch(_){ } esDet=null; }
   function toggleDetails(){
     const d = document.getElementById('details');
@@ -1417,7 +1693,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const text = lines.join('\n');
 
     let ok = false;
-    try { await navigator.clipboard.writeText(text); ok = True; } catch(e) { ok = false; }
+    try { await navigator.clipboard.writeText(text); ok = true; } catch(e) { ok = false; }
     if (!ok){
       try{
         const ta = document.createElement('textarea');
@@ -1471,9 +1747,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const onMain = !document.getElementById('ops-card').classList.contains('hidden');
     const logPanel = document.getElementById('log-panel');
-    const layout = document.getElementById('layout');
+    const layout   = document.getElementById('layout');
+    const stats    = document.getElementById('stats-card');
+    const hasStatsVisible = !!(stats && !stats.classList.contains('hidden'));
+
     logPanel.classList.toggle('hidden', !(appDebug && onMain));
-    layout.classList.toggle('full', onMain && !appDebug);
+    layout.classList.toggle('full', onMain && !appDebug && !hasStatsVisible);
   }
 
   /* ====== Config & Settings ====== */
@@ -1775,8 +2054,6 @@ document.addEventListener('DOMContentLoaded', () => {
     }, 1000);
   }
 
-
-
   /* SIMKL auth */
   function setSimklSuccess(show){ document.getElementById('simkl_msg').classList.toggle('hidden', !show); }
   function isPlaceholder(v, ph){ return (v||'').trim().toUpperCase() === ph.toUpperCase(); }
@@ -2061,7 +2338,6 @@ document.addEventListener('DOMContentLoaded', () => {
       setTimeout(() => { btnEl.disabled = false; }, 600);
     }
   }
-
 
   /* ====== Watchlist preview visibility ====== */
   async function updateWatchlistPreview(){ await loadWatchlist(); }

@@ -17,6 +17,7 @@ import shutil
 import urllib.request
 import urllib.error
 import urllib.parse
+from _statistics import Stats
 from fastapi import Query
 from fastapi.responses import StreamingResponse
 from fastapi.responses import JSONResponse
@@ -57,11 +58,14 @@ ROOT = Path(__file__).resolve().parent
 app = FastAPI()
 
 # --- Versioning ---
-CURRENT_VERSION = os.getenv("APP_VERSION", "v0.4.4")  # keep in sync with release tag
+CURRENT_VERSION = os.getenv("APP_VERSION", "v0.4.5")  # keep in sync with release tag
 REPO = os.getenv("GITHUB_REPO", "cenodude/plex-simkl-watchlist-sync")
 GITHUB_API = f"https://api.github.com/repos/{REPO}/releases/latest"
 
 router = APIRouter()
+
+# -- Statistics (singleton) ---
+STATS = Stats()
 
 @app.get("/api/update")
 def api_update():
@@ -239,25 +243,84 @@ def _is_placeholder(val: str, placeholder: str) -> bool:
     return (val or "").strip().upper() == placeholder.upper()
 
 # ---------- ANSI → HTML & logs ----------
-ANSI_RE = re.compile(r"\x1b\[(\d{1,3})(?:;\d{1,3})*m")
-ANSI_CLASS = {"90":"c90","91":"c91","92":"c92","93":"c93","94":"c94","95":"c95","96":"c96","97":"c97","0":"c0"}
+ANSI_RE    = re.compile(r"\x1b\[([0-9;]*)m")
 ANSI_STRIP = re.compile(r"\x1b\[[0-9;]*m")
+
 def _escape_html(s: str) -> str:
     return s.replace("&","&amp;").replace("<","&lt;").replace(">","&gt;")
+
 def strip_ansi(s: str) -> str:
     return ANSI_STRIP.sub("", s)
+
+# Keep combined SGR state (bold, underline, fg color, bg color)
+_FG_CODES = {"30","31","32","33","34","35","36","37","90","91","92","93","94","95","96","97"}
+_BG_CODES = {"40","41","42","43","44","45","46","47","100","101","102","103","104","105","106","107"}
+
 def ansi_to_html(line: str) -> str:
-    parts, open_span, pos = [], False, 0
+    out, pos = [], 0
+    state = {"b": False, "u": False, "fg": None, "bg": None}
+    span_open = False
+
+    def state_classes():
+        cls = []
+        if state["b"]: cls.append("b")
+        if state["u"]: cls.append("u")
+        if state["fg"]: cls.append(f"c{state['fg']}")
+        if state["bg"]: cls.append(f"bg{state['bg']}")
+        return cls
+
     for m in ANSI_RE.finditer(line):
-        if m.start() > pos: parts.append(_escape_html(line[pos:m.start()]))
-        code = m.group(1)
-        if open_span: parts.append("</span>"); open_span = False
-        cls = ANSI_CLASS.get(code)
-        if cls and cls != "c0": parts.append(f'<span class="{cls}">'); open_span = True
+        # plain text before escape
+        if m.start() > pos:
+            out.append(_escape_html(line[pos:m.start()]))
+
+        codes = [c for c in (m.group(1) or "").split(";") if c != ""]
+        if codes:
+            # apply codes in order (SGR semantics)
+            for c in codes:
+                if c == "0":                      # full reset
+                    state.update({"b": False, "u": False, "fg": None, "bg": None})
+                elif c == "1":                    # bold on
+                    state["b"] = True
+                elif c == "22":                   # bold off
+                    state["b"] = False
+                elif c == "4":                    # underline on
+                    state["u"] = True
+                elif c == "24":                   # underline off
+                    state["u"] = False
+                elif c in _FG_CODES:              # set foreground
+                    state["fg"] = c
+                elif c == "39":                   # default foreground
+                    state["fg"] = None
+                elif c in _BG_CODES:              # set background
+                    state["bg"] = c
+                elif c == "49":                   # default background
+                    state["bg"] = None
+                else:
+                    # ignore other SGR codes
+                    pass
+
+            # rebuild span for the new state
+            if span_open:
+                out.append("</span>")
+                span_open = False
+            cls = state_classes()
+            if cls:
+                out.append(f'<span class="{" ".join(cls)}">')
+                span_open = True
+
         pos = m.end()
-    if pos < len(line): parts.append(_escape_html(line[pos:]))
-    if open_span: parts.append("</span>")
-    return "".join(parts)
+
+    # tail text
+    if pos < len(line):
+        out.append(_escape_html(line[pos:]))
+
+    if span_open:
+        out.append("</span>")
+
+    return "".join(out)
+
+
 def _append_log(tag: str, raw_line: str) -> None:
     html = ansi_to_html(raw_line.rstrip("\n"))
     buf = LOG_BUFFERS.setdefault(tag, [])
@@ -362,17 +425,48 @@ def _parse_sync_line(line: str) -> None:
 def _stream_proc(cmd: List[str], tag: str) -> None:
     try:
         if tag == "SYNC":
-            _summary_reset(); _summary_set("running", True)
-            SUMMARY["raw_started_ts"] = time.time(); _summary_set("started_at", datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"))
+            # reset + start flags
+            _summary_reset()
+            _summary_set("running", True)
+            SUMMARY["raw_started_ts"] = time.time()
+            _summary_set("started_at", datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"))
             _summary_set_timeline("start", True)
-        _append_log(tag, f"> {tag} start: {' '.join(cmd)}")
-        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1, cwd=str(ROOT))
+
+            # vul cmd meteen; geef version een veilige fallback als de log hem niet print
+            try:
+                _summary_set("cmd", " ".join(cmd))
+            except Exception:
+                pass
+            try:
+                if not _summary_snapshot().get("version"):
+                    _summary_set("version", _norm(CURRENT_VERSION))
+            except Exception:
+                pass
+
+        # synthetische startregel → loggen én parse'n (zodat 'cmd' ook via parser gevuld kan worden)
+        line0 = f"> {tag} start: {' '.join(cmd)}"
+        _append_log(tag, line0)
+        if tag == "SYNC":
+            _parse_sync_line(line0)
+
+        proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+            cwd=str(ROOT),
+        )
         RUNNING_PROCS[tag] = proc
         assert proc.stdout is not None
+
         for line in proc.stdout:
             _append_log(tag, line)
-            if tag == "SYNC": _parse_sync_line(line)
-        rc = proc.wait(); _append_log(tag, f"[{tag}] exit code: {rc}")
+            if tag == "SYNC":
+                _parse_sync_line(line)
+
+        rc = proc.wait()
+        _append_log(tag, f"[{tag}] exit code: {rc}")
 
         if tag == "SYNC" and rc == 0:
             _clear_watchlist_hide()
@@ -381,16 +475,29 @@ def _stream_proc(cmd: List[str], tag: str) -> None:
             _summary_set("exit_code", rc)
             started = _summary_snapshot().get("raw_started_ts")
             if started:
-                dur = max(0.0, time.time()-float(started)); _summary_set("duration_sec", round(dur,2))
-            _summary_set("finished_at", datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")); _summary_set("running", False); _summary_set_timeline("done", True)
+                dur = max(0.0, time.time() - float(started))
+                _summary_set("duration_sec", round(dur, 2))
+            _summary_set("finished_at", datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"))
+            _summary_set("running", False)
+            _summary_set_timeline("done", True)
             try:
-                ts = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S"); path = REPORT_DIR / f"sync-{ts}.json"
-                with path.open("w", encoding="utf-8") as f: json.dump(_summary_snapshot(), f, indent=2)
-            except Exception: pass
+                ts = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+                path = REPORT_DIR / f"sync-{ts}.json"
+                with path.open("w", encoding="utf-8") as f:
+                    json.dump(_summary_snapshot(), f, indent=2)
+            except Exception:
+                pass
+
+            try:
+                STATS.refresh_from_state(_load_state())
+            except Exception:
+                pass
+
     except Exception as e:
         _append_log(tag, f"[{tag}] ERROR: {e}")
     finally:
         RUNNING_PROCS.pop(tag, None)
+
 
 def start_proc_detached(cmd: List[str], tag: str) -> None:
     threading.Thread(target=_stream_proc, args=(cmd, tag), daemon=True).start()
@@ -691,6 +798,15 @@ async def cache_headers_for_api(request: Request, call_next):
         resp.headers["Expires"] = "0"
     return resp
 
+@app.get("/api/stats")
+def api_stats() -> Dict[str, Any]:
+    base = STATS.overview(_load_state())
+    snap = _summary_snapshot() if callable(globals().get("_summary_snapshot", None)) else {}
+    live = snap.get("plex_post") or snap.get("simkl_post") or snap.get("plex_pre") or snap.get("simkl_pre")
+    if isinstance(live, int):
+        base["now"] = live
+    return base
+
 @app.get("/api/logs/stream")
 def api_logs_stream_initial(tag: str = Query("SYNC")):
     tag = (tag or "SYNC").upper()
@@ -745,11 +861,9 @@ def api_watchlist() -> JSONResponse:
         status_code=200,
     )
 
-
 @app.delete("/api/watchlist/{key}")
 def api_watchlist_delete(key: str = FPath(...)) -> JSONResponse:
     sp = _find_state_path() or (CONFIG_BASE / "state.json")
-    # key may arrive URL-encoded from the browser
     try:
         if "%" in (key or ""):
             key = urllib.parse.unquote(key)
@@ -758,18 +872,35 @@ def api_watchlist_delete(key: str = FPath(...)) -> JSONResponse:
             key=key,
             state_path=sp,
             cfg=load_config(),
-            log=_append_log,  # optional logger
+            log=_append_log,
         )
-        # Always return JSON, never 404
+
         if not isinstance(result, dict) or "ok" not in result:
             result = {"ok": False, "error": "unexpected server response"}
 
+        if result.get("ok"):
+            try:
+                STATS.record_event(action="remove", key=key, source="plex")
+            except Exception:
+                pass
+            # live adjust: remove key from in-memory state before refreshing stats
+            try:
+                state = _load_state()
+                for side in ("plex", "simkl"):
+                    items = ((state.get(side) or {}).get("items") or {})
+                    if key in items:
+                        items.pop(key, None)
+                STATS.refresh_from_state(state)
+            except Exception:
+                pass
+
         status = 200 if result.get("ok") else 400
         return JSONResponse(result, status_code=status)
+
     except Exception as e:
         _append_log("TRBL", f"[WATCHLIST] ERROR: {e}")
         return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
-
+    
 
 @app.get("/favicon.svg", include_in_schema=False)
 def favicon_svg():

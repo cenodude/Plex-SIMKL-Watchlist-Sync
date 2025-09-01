@@ -49,7 +49,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from typing import Any, Sequence, Tuple, List, Dict, Set, Optional, NoReturn, cast
 
-__VERSION__ = "v0.4.4"
+__VERSION__ = "v0.4.5"
 
 # --- timestamped & colored print ---
 ANSI_DIM    = "\033[90m"  # grey

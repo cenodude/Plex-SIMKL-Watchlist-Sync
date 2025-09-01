@@ -212,51 +212,23 @@ This will start a FastAPI-based server, and you can access the web interface on 
 
 This project requires a **Plex account token** (`plex.account_token`) stored in `config.json`.
 
-Run:
+Configure in the web interface or in CLI:
 
 ```bash
 python plex_token_helper.py --fetch
 ```
+---
+## 🎬 Getting a TMDb API key
+
+TMDb integration is **optional** but highly recommended.  
+It enriches the Web Interface with posters, genres, and descriptions for your watchlist items.
+
+This project requires a **TMDb API key** (`tmdb.api_key`) stored in `config.json`.
+
+Get your free key here:  
+👉 [TMDb API Settings](https://www.themoviedb.org/settings/api)*
 
 ---
- **TMDb Integration (optional, but highly recommended)**  
- Enrich your watchlist preview with beautiful posters, titles, genres, and descriptions powered by [TMDb](https://www.themoviedb.org/).  
-When enabled, the Web Interface becomes a vibrant, poster-driven gallery that makes browsing your Plex ⇄ SIMKL watchlist a joy.  
-
-  👉 Get your free API key here: [TMDb API Settings](https://www.themoviedb.org/settings/api)  
-  *(This product uses the TMDb API but is not endorsed or certified by TMDb.)*
-
-
-## 🖥️ Usage
-
-Show help (and all examples/flags):
-
-```bash
-./plex_simkl_watchlist_sync.py --help
-```
-
-### CLI flags
-
-```
---sync                         Run synchronization using config.json
---init-simkl redirect          Start local redirect helper for SIMKL OAuth
---bind HOST:PORT               Bind address for redirect helper (default 0.0.0.0:8787)
---open                         Try to open the SIMKL auth URL on this device
---plex-account-token TOKEN     Override Plex token from config.json for this run
---debug                        Verbose logging
---version                      Print script and plexapi versions
---reset-state                  Delete state.json (next --sync will re-seed safely)
-```
-
----
-
-## 🗃️ Files the script writes
-
-- `config.json` — your configuration + SIMKL tokens.
-- `state.json` — local snapshot that enables **real two-way deletions** on subsequent runs.
-
----
-
 ## 🛠️ Troubleshooting
 
 ### Out-of-sync or repeated `NOT EQUAL`
@@ -276,4 +248,4 @@ Issues and suggestions are welcome. When reporting problems, include:
 
 ## 🔒 Disclaimer
 
-This project is **community-made** and is **not affiliated with Plex or SIMKL**. Use it at your own risk.
+This project is **community-made** and is **not affiliated with Plex, SIMKL or TMDb**. Use it at your own risk.

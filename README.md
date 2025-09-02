@@ -12,7 +12,8 @@
 I use both **Plex** and **SIMKL** to track what I watch, but their watchlists are completely separate.  
 Adding a movie or show in one place doesn’t appear in the other, and keeping them in sync manually is a hassle.
 
-This project solves that by treating the two watchlists as **one connected system**:
+This project began as a **pilot**, but the bigger vision is a **modular architecture** for media sync —  
+a framework where, in the future, you can **sync anything with anything**.
 
 - Adding/removing in **Plex** automatically syncs to **SIMKL**.  
 - Adding/removing in **SIMKL** automatically syncs to **Plex**.  

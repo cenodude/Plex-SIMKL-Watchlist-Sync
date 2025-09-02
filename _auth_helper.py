@@ -17,7 +17,7 @@ import urllib.parse as _url
 
 import requests
 
-# ---------------- PLEX (your working logic) ----------------
+# ---------------- PLEX  ----------------
 
 __VERSION__ = "0.3.9"
 UA = f"Plex-Token-Helper/{__VERSION__}"
@@ -120,9 +120,8 @@ def simkl_exchange_code(client_id: str, client_secret: str, code: str, redirect_
         "client_secret": client_secret,
     }
     headers = {
-        "User-Agent": UA,               # zelfde idee als in jouw script
+        "User-Agent": UA,
         "Accept": "application/json",
-        # requests zet Content-Type: application/json automatisch bij json=...
     }
     r = requests.post(SIMKL_TOKEN, json=payload, headers=headers, timeout=30)
     if not r.ok:

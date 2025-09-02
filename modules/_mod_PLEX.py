@@ -1,19 +1,22 @@
+# /modules/_mod_PLEX.py
 from __future__ import annotations
 
-__VERSION__ = "0.1.0"
+__VERSION__ = "0.2.0"
 
 import re
 import time
 import json
 import threading
-from typing import Any, Dict, Mapping, Optional, List, Tuple, Sequence, cast, TYPE_CHECKING
+from typing import Any, Dict, Mapping, Optional, List, Tuple, Sequence, cast, TYPE_CHECKING, Callable
 from pathlib import Path
 
 import requests
 
 from ._mod_base import (
     SyncModule, SyncContext, SyncResult, SyncStatus,
-    ModuleError, RecoverableModuleError, ConfigError, Logger as HostLogger,
+    ModuleError, RecoverableModuleError, ConfigError,
+    Logger as HostLogger, ProgressEvent,
+    ModuleInfo, ModuleCapabilities,
 )
 
 # ---- root logger integration -------------------------------------------------
@@ -30,6 +33,10 @@ class _NullLogger:
     def warn(self, msg: str) -> None: print(msg)
     def warning(self, msg: str) -> None: print(msg)
     def error(self, msg: str) -> None: print(msg)
+    def set_context(self, **_: Any) -> None: ...
+    def get_context(self) -> Dict[str, Any]: return {}
+    def bind(self, **_: Any) -> "_NullLogger": return self
+    def child(self, name: str) -> "_NullLogger": return self
 
 
 class _LoggerAdapter:
@@ -38,7 +45,14 @@ class _LoggerAdapter:
         self._ctx: Dict[str, Any] = {}
         self._module = module_name
 
-    def __call__(self, message: str, *, level: str = "INFO", module: Optional[str] = None, extra: Optional[Mapping[str, Any]] = None) -> None:
+    def __call__(
+        self,
+        message: str,
+        *,
+        level: str = "INFO",
+        module: Optional[str] = None,
+        extra: Optional[Mapping[str, Any]] = None
+    ) -> None:
         lvl = (level or "INFO").upper()
         tag = {"DEBUG": "[debug]", "INFO": "[i]", "WARN": "[!]", "WARNING": "[!]", "ERROR": "[!]"}.get(lvl, "[i]")
         line = f"{tag} {message}"
@@ -57,9 +71,37 @@ class _LoggerAdapter:
 
     def set_context(self, **ctx: Any) -> None:
         self._ctx.update(ctx)
+        if hasattr(self._logger, "set_context"):
+            try: self._logger.set_context(**self._ctx)
+            except Exception: ...
 
     def get_context(self) -> Dict[str, Any]:
+        if hasattr(self._logger, "get_context"):
+            try: return dict(self._logger.get_context())
+            except Exception: ...
         return dict(self._ctx)
+
+    def bind(self, **ctx: Any) -> "_LoggerAdapter":
+        # best-effort: prefer host bind/child, else keep adapter
+        base = self._logger
+        if hasattr(base, "bind"):
+            try:
+                bound = base.bind(**ctx)
+                return _LoggerAdapter(bound, module_name=self._module)
+            except Exception:
+                ...
+        self.set_context(**ctx)
+        return self
+
+    def child(self, name: str) -> "_LoggerAdapter":
+        base = self._logger
+        if hasattr(base, "child"):
+            try:
+                ch = base.child(name)
+                return _LoggerAdapter(ch, module_name=name)
+            except Exception:
+                ...
+        return self
 
 
 # ---- constants & regexes -----------------------------------------------------
@@ -353,33 +395,67 @@ def build_index(rows_movies: List[Dict[str, Any]], rows_shows: List[Dict[str, An
 
 # ---- Module ------------------------------------------------------------------
 class PLEXModule(SyncModule):
-    name = "PLEX"
-
-    @property
-    def version(self) -> str:
-        return __VERSION__
+    info = ModuleInfo(
+        name="PLEX",
+        version=__VERSION__,
+        description="Reads and writes Plex watchlist via plexapi/Discover.",
+        vendor="community",
+        capabilities=ModuleCapabilities(
+            supports_dry_run=True,
+            supports_cancel=True,
+            supports_timeout=True,
+            bidirectional=True,
+            status_stream=True,
+            config_schema={
+                "type": "object",
+                "properties": {
+                    "plex": {
+                        "type": "object",
+                        "properties": {
+                            "account_token": {"type": "string", "minLength": 1},
+                        },
+                        "required": ["account_token"],
+                    },
+                    "runtime": {
+                        "type": "object",
+                        "properties": {"debug": {"type": "boolean"}},
+                    },
+                },
+                "required": ["plex"],
+            },
+        ),
+    )
 
     def __init__(self, config: Mapping[str, Any], logger: HostLogger):
         self._cfg_raw: Dict[str, Any] = dict(config or {})
         self._plex_cfg = dict(self._cfg_raw.get("plex") or {})
-        self._log = _LoggerAdapter(logger, module_name=self.name)
+        self._log = _LoggerAdapter(logger, module_name=self.info.name).bind(module=self.info.name)
         self._cancel = threading.Event()
         self._last_status: Dict[str, Any] = {}
         self._acct: Optional["MyPlexAccount"] = None
+
+    # --- lifecycle
 
     def validate_config(self) -> None:
         tok = (self._plex_cfg.get("account_token") or "").strip()
         if not tok:
             raise ConfigError("plex.account_token is required")
 
+    def reconfigure(self, config: Mapping[str, Any]) -> None:
+        self._cfg_raw = dict(config or {})
+        self._plex_cfg = dict(self._cfg_raw.get("plex") or {})
+        self.validate_config()
+
     def set_logger(self, logger: HostLogger) -> None:
-        self._log = _LoggerAdapter(logger, module_name=self.name)
+        self._log = _LoggerAdapter(logger, module_name=self.info.name).bind(module=self.info.name)
 
     def get_status(self) -> Mapping[str, Any]:
         return dict(self._last_status)
 
     def cancel(self) -> None:
         self._cancel.set()
+
+    # --- private
 
     def _ensure_acct(self) -> None:
         if self._acct is not None:
@@ -394,6 +470,14 @@ class PLEXModule(SyncModule):
             self._acct = _RealMyPlexAccount(token=token)
         except Exception as e:
             raise RecoverableModuleError(f"Could not authenticate to Plex: {e}")
+
+    def _check_cancel_timeout(self, t0: float, ctx: SyncContext) -> None:
+        if self._cancel.is_set() or (ctx.cancel_flag and ctx.cancel_flag[0]):
+            raise RecoverableModuleError("cancelled")
+        if ctx.timeout_sec is not None and (time.time() - t0) >= ctx.timeout_sec:
+            raise RecoverableModuleError("timeout")
+
+    # --- optional RW APIs (used by orchestrator paths)
 
     def plex_add(self, items_by_type: Mapping[str, List[Mapping[str, Any]]], *, dry_run: bool = False) -> Dict[str, Any]:
         self._ensure_acct()
@@ -429,25 +513,50 @@ class PLEXModule(SyncModule):
                     removed += 1
         return {"ok": True, "removed": removed}
 
-    def run_sync(self, ctx: SyncContext) -> SyncResult:
+    # --- core
+
+    def run_sync(
+        self,
+        ctx: SyncContext,
+        progress: Optional[Callable[[ProgressEvent], None]] = None,
+    ) -> SyncResult:
         t0 = time.time()
         self._cancel.clear()
-        self._log(f"run_id={ctx.run_id} dry_run={ctx.dry_run}", level="DEBUG")
+        log = self._log.child("run").bind(run_id=ctx.run_id, dry_run=ctx.dry_run)
+        log(f"start run_id={ctx.run_id} dry_run={ctx.dry_run}", level="DEBUG")
+
+        def emit(stage: str, done: int = 0, total: int = 0, note: Optional[str] = None, meta: Optional[Dict[str, Any]] = None) -> None:
+            if progress:
+                try:
+                    progress(ProgressEvent(stage=stage, done=done, total=total, note=note, meta=dict(meta or {})))
+                except Exception:
+                    ...
+
         try:
             self.validate_config()
         except ConfigError as e:
+            emit("validate", 0, 0, "config error")
             return self._finish(t0, SyncStatus.FAILED, errors=[str(e)])
 
         debug = bool(self._cfg_raw.get("runtime", {}).get("debug", False))
         token = self._plex_cfg.get("account_token", "")
 
         try:
+            emit("auth")
             self._ensure_acct()
+            self._check_cancel_timeout(t0, ctx)
 
+            emit("fetch", note="watchlist")
             plex_items = plex_fetch_watchlist_items(self._acct, token, debug=debug)
+            self._check_cancel_timeout(t0, ctx)
+
+            emit("parse")
             rows = gather_plex_rows(plex_items)
             rows_movies = [r for r in rows if r["type"] == "movie"]
             rows_shows  = [r for r in rows if r["type"] == "show"]
+            self._check_cancel_timeout(t0, ctx)
+
+            emit("index")
             idx = build_index(rows_movies, rows_shows)
 
             items_total = len(idx)
@@ -465,13 +574,20 @@ class PLEXModule(SyncModule):
                 "watchlist_total": items_total,
             }
 
-            self._log(f"PLEX watchlist total={items_total}", level="INFO")
+            log(f"PLEX watchlist total={items_total}", level="INFO")
+            emit("done", done=items_total, total=items_total)
             return self._finish(t0, SyncStatus.SUCCESS, items_total=items_total, metadata=meta)
+
         except RecoverableModuleError as e:
-            self._log(str(e), level="WARN")
-            return self._finish(t0, SyncStatus.WARNING, errors=[str(e)])
+            note = "cancelled" if "cancelled" in str(e).lower() else ("timeout" if "timeout" in str(e).lower() else "recoverable")
+            emit(note)
+            log(str(e), level="WARN")
+            status = SyncStatus.CANCELLED if "cancelled" in note else SyncStatus.WARNING
+            return self._finish(t0, status, errors=[str(e)])
+
         except Exception as e:
-            self._log(f"unexpected error: {e}", level="ERROR")
+            emit("error", note="unexpected")
+            log(f"unexpected error: {e}", level="ERROR")
             return self._finish(t0, SyncStatus.FAILED, errors=[repr(e)])
 
     def _finish(

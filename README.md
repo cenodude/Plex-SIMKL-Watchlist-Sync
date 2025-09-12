@@ -1,11 +1,8 @@
-<p align="center">
-  <img src="https://raw.githubusercontent.com/cenodude/Plex-SIMKL-Watchlist-Sync/main/images/1.jpg" 
-       alt="Plex ⇄ SIMKL Watchlist Sync" width="30%" style="max-width:300px;">
-  <img src="https://raw.githubusercontent.com/cenodude/Plex-SIMKL-Watchlist-Sync/main/images/Plex-SIMKL-Interface.png" 
-       alt="Plex ⇄ SIMKL Watchlist Sync" width="35%" style="max-width:300px;">
-  <img src="https://raw.githubusercontent.com/cenodude/Plex-SIMKL-Watchlist-Sync/main/images/2.jpg" 
-       alt="Plex ⇄ SIMKL Watchlist Sync" width="30%" style="max-width:300px;">
-</p>
+> ⚠️ **Project Status: Discontinued**  
+> This project is no longer maintained and has been fully **replaced by [CrossWatch](https://github.com/cenodude/CrossWatch)**.  
+> CrossWatch builds on this pilot with a **modular architecture** and supports **multiple providers** (Plex, Simkl, Trakt) from a single unified platform.
+
+---
 
 ## Why I built this
 
